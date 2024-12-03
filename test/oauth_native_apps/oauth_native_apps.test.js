@@ -20,18 +20,15 @@ describe('OAuth 2.0 for Native Apps Best Current Practice features', () => {
         });
       });
 
-      it('rejects custom schemes without dots with reverse domain name scheme recommendation', function () {
-        return assert.rejects(i(this.provider).clientAdd({
+      // Updated test to reflect the forked version of oidc-provider
+      it('allows custom schemes without dots with reverse domain name scheme recommendation', function () {
+        return i(this.provider).clientAdd({
           application_type: 'native',
           client_id: 'native-custom',
           grant_types: ['implicit'],
           response_types: ['id_token'],
           token_endpoint_auth_method: 'none',
           redirect_uris: ['myapp:/op/callback'],
-        }), (err) => {
-          expect(err).to.have.property('message', 'invalid_redirect_uri');
-          expect(err).to.have.property('error_description', 'redirect_uris for native clients using Custom URI scheme should use reverse domain name based scheme');
-          return true;
         });
       });
     });
@@ -48,18 +45,15 @@ describe('OAuth 2.0 for Native Apps Best Current Practice features', () => {
         });
       });
 
-      it('rejects https if using loopback uris', function () {
-        return assert.rejects(i(this.provider).clientAdd({
+      // Updated test to reflect the forked version of oidc-provider
+      it('allows https if using loopback uris', function () {
+        return i(this.provider).clientAdd({
           application_type: 'native',
           client_id: 'native-custom',
           grant_types: ['implicit'],
           response_types: ['id_token'],
           token_endpoint_auth_method: 'none',
           redirect_uris: ['https://localhost/op/callback'],
-        }), (err) => {
-          expect(err).to.have.property('message', 'invalid_redirect_uri');
-          expect(err).to.have.property('error_description', 'redirect_uris for native clients using claimed HTTPS URIs must not be using localhost as hostname');
-          return true;
         });
       });
     });
@@ -188,18 +182,20 @@ describe('OAuth 2.0 for Native Apps Best Current Practice features', () => {
         });
       });
 
-      it('rejects http protocol uris not using loopback uris', function () {
-        return assert.rejects(i(this.provider).clientAdd({
+      // Updated test to reflect the forked version of oidc-provider
+      it('allows http protocol uris not using loopback uris', function () {
+        return i(this.provider).clientAdd({
           application_type: 'native',
           client_id: 'native-custom',
           grant_types: ['implicit'],
           response_types: ['id_token'],
           token_endpoint_auth_method: 'none',
           redirect_uris: ['http://rp.example.com/op/callback'],
-        }), (err) => {
-          expect(err).to.have.property('message', 'invalid_redirect_uri');
-          expect(err).to.have.property('error_description', 'redirect_uris for native clients using http as a protocol can only use loopback addresses as hostnames');
-          return true;
+        }).then((client) => {
+          expect(client.redirectUris).to.contain('http://rp.example.com/op/callback');
+          expect(client.redirectUriAllowed('http://rp.example.com/op/callback')).to.be.true;
+          expect(client.redirectUriAllowed('http://rp.example.com:80/op/callback')).to.be.true;
+          expect(client.redirectUriAllowed('http://rp.example.com:443/op/callback')).to.be.false;
         });
       });
     });

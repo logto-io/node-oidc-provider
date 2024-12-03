@@ -463,10 +463,12 @@ describe('Client metadata validation', () => {
         application_type: 'web',
       },
     );
-    rejects(this.title, ['no-dot-reverse-notation:/some'], undefined, {
+    // Updated test to reflect the forked version of oidc-provider
+    allows(this.title, ['no-dot-reverse-notation:/some'], undefined, {
       application_type: 'web',
     });
-    rejects(this.title, ['https://localhost'], undefined, {
+    // Updated test to reflect the forked version of oidc-provider
+    allows(this.title, ['https://localhost'], undefined, {
       application_type: 'web',
       grant_types: ['implicit', 'authorization_code'],
       response_types: ['code id_token'],
@@ -474,13 +476,15 @@ describe('Client metadata validation', () => {
     allows(this.title, ['http://localhost'], {
       application_type: 'web',
     });
-    rejects(this.title, ['http://some'], undefined, {
+    // Updated test to reflect the forked version of oidc-provider
+    allows(this.title, ['http://some'], undefined, {
       application_type: 'native',
     });
     rejects(this.title, ['not-a-uri'], undefined, {
       application_type: 'native',
     });
-    rejects(this.title, ['http://foo/bar'], undefined, {
+    // Updated test to reflect the forked version of oidc-provider
+    allows(this.title, ['http://foo/bar'], undefined, {
       application_type: 'web',
       grant_types: ['implicit'],
       response_types: ['id_token'],
@@ -553,10 +557,12 @@ describe('Client metadata validation', () => {
         application_type: 'web',
       },
     );
-    rejects(this.title, ['no-dot-reverse-notation:/some'], undefined, {
+    // Updated test to reflect the forked version of oidc-provider
+    allows(this.title, ['no-dot-reverse-notation:/some'], undefined, {
       application_type: 'web',
     });
-    rejects(this.title, ['https://localhost'], undefined, {
+    // Updated test to reflect the forked version of oidc-provider
+    allows(this.title, ['https://localhost'], undefined, {
       application_type: 'web',
       grant_types: ['implicit', 'authorization_code'],
       response_types: ['code id_token'],
@@ -564,13 +570,15 @@ describe('Client metadata validation', () => {
     allows(this.title, ['http://localhost'], {
       application_type: 'web',
     });
-    rejects(this.title, ['http://some'], undefined, {
+    // Updated test to reflect the forked version of oidc-provider
+    allows(this.title, ['http://some'], undefined, {
       application_type: 'native',
     });
     rejects(this.title, ['not-a-uri'], undefined, {
       application_type: 'native',
     });
-    rejects(this.title, ['http://foo/bar'], undefined, {
+    // Updated test to reflect the forked version of oidc-provider
+    allows(this.title, ['http://foo/bar'], undefined, {
       application_type: 'web',
       grant_types: ['implicit'],
       response_types: ['id_token'],
