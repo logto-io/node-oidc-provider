@@ -3,15 +3,20 @@
 This module provides an OAuth 2.0 ([RFC 6749][oauth2]) Authorization Server with support for OpenID Connect ([OIDC][openid-connect]) and many
 other additional features and standards.
 
-**Table of Contents**
+## Table of Contents
 
-- [Implemented specs \& features](#implemented-specs--features)
-- [Certification](#certification)
-- [Support](#support)
-- [Documentation \& Configuration](#documentation--configuration)
-- [Recipes](#recipes)
-- [Events](#events)
-- [Supported Versions](#supported-versions)
+- [oidc-provider](#oidc-provider)
+  - [Table of Contents](#table-of-contents)
+  - [Implemented specs \& features](#implemented-specs--features)
+  - [Certification](#certification)
+  - [Support](#support)
+  - [Documentation \& Configuration](#documentation--configuration)
+  - [Recipes](#recipes)
+  - [Events](#events)
+  - [Logto fork changes](#logto-fork-changes)
+    - [Loose redirect URI requirements](#loose-redirect-uri-requirements)
+    - [Cross-client interactions](#cross-client-interactions)
+  - [Supported Versions](#supported-versions)
 
 ## Implemented specs & features
 
@@ -62,7 +67,7 @@ your CI.
 
 ## Certification
 
-[<img width="184" height="96" align="right" src="https://cdn.jsdelivr.net/gh/panva/node-oidc-provider@acd3ebf2f5ebbb5605463cb681a1fb2ab9742ace/OpenID_Certified.png" alt="OpenID Certification">][openid-certified-link]  
+[<img width="184" height="96" align="right" src="https://cdn.jsdelivr.net/gh/panva/node-oidc-provider@acd3ebf2f5ebbb5605463cb681a1fb2ab9742ace/OpenID_Certified.png" alt="OpenID Certification">][openid-certified-link]
 Filip Skokan has [certified][openid-certified-link] that [oidc-provider][npm-url]
 conforms to the following profiles of the OpenID Connect™ protocol.
 
@@ -113,6 +118,21 @@ Collection of useful configuration use cases are available over at [recipes](/re
 
 oidc-provider instances are event emitters, using event handlers you can hook into the various
 actions and i.e. emit metrics that react to specific triggers. See the list of available emitted [event names](/docs/events.md) and their description.
+
+## Logto fork changes
+
+### Loose redirect URI requirements
+
+To better support Logto applications, this fork relaxes redirect URI validation by commenting out parts of the checks in `lib/helpers/client_schema.js`. The provider is less strict about `redirect_uri` formats (e.g., allowing custom schemes or non-standard hosts/ports) while keeping other validations intact. Use with caution and register only the exact redirect URIs you expect.
+
+### Cross-client interactions
+
+The interaction cookie value is changed from a plain string to a mapping object `{ [clientId]: interactionUid }`. This lets multiple clients start login concurrently and later resolve their own interaction details to complete auth and redirect to each client’s callback URI.
+
+Provide client ID context via either:
+
+- URL search param: `app_id=foo`
+- HTTP header: `Logto-App-Id`
 
 ## Supported Versions
 
