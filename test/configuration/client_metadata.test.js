@@ -485,7 +485,17 @@ describe('Client metadata validation', () => {
         application_type: 'web',
       },
     );
-    rejects(this.title, ['no-dot-reverse-notation:/some'], undefined, {
+    // LOGTO PATCH(redirect-uri-relaxation): custom-scheme uris are allowed for web clients
+    allows(this.title, ['no-dot-reverse-notation:/some'], {
+      application_type: 'web',
+    });
+    /**
+     * LOGTO PATCH(redirect-uri-relaxation): wildcard-shaped https uris must pass schema
+     * validation untouched. Wildcard matching itself deliberately does not return to the
+     * fork — it moves into Logto core as part of the v9 switch (LOG-13813); until that
+     * override lands, this branch matches redirect uris exactly.
+     */
+    allows(this.title, ['https://*.example.com/callback'], {
       application_type: 'web',
     });
     rejects(this.title, ['https://localhost'], undefined, {
@@ -496,13 +506,15 @@ describe('Client metadata validation', () => {
     allows(this.title, ['http://localhost'], {
       application_type: 'web',
     });
-    rejects(this.title, ['http://some'], undefined, {
+    // LOGTO PATCH(redirect-uri-relaxation): non-loopback http uris are allowed for native clients
+    allows(this.title, ['http://some'], {
       application_type: 'native',
     });
     rejects(this.title, ['not-a-uri'], undefined, {
       application_type: 'native',
     });
-    rejects(this.title, ['https://localhost/op/callback'], /for native clients using claimed HTTPS URIs must not be using localhost as hostname/, {
+    // LOGTO PATCH(redirect-uri-relaxation): loopback https uris are allowed for native clients
+    allows(this.title, ['https://localhost/op/callback'], {
       application_type: 'native',
     });
     allows(this.title, ['com.example.app://localhost/op/callback', 'com.example.app:/op/callback'], {
@@ -522,6 +534,10 @@ describe('Client metadata validation', () => {
     for (const scheme of ['javascript', 'vbscript', 'data', 'blob', 'file', 'about']) {
       rejects(this.title, [`${scheme}:foo`], `redirect_uris must not use the ${scheme} URI scheme`, {
         application_type: 'native',
+      });
+      // LOGTO PATCH(redirect-uri-relaxation): forbidden schemes are rejected for web clients too
+      rejects(this.title, [`${scheme}:foo`], `redirect_uris must not use the ${scheme} URI scheme`, {
+        application_type: 'web',
       });
     }
     it('has an schema invalidation hook for forcing https on implicit', async () => {
@@ -592,7 +608,8 @@ describe('Client metadata validation', () => {
         application_type: 'web',
       },
     );
-    rejects(this.title, ['no-dot-reverse-notation:/some'], undefined, {
+    // LOGTO PATCH(redirect-uri-relaxation): custom-scheme uris are allowed for web clients
+    allows(this.title, ['no-dot-reverse-notation:/some'], {
       application_type: 'web',
     });
     rejects(this.title, ['https://localhost'], undefined, {
@@ -603,7 +620,8 @@ describe('Client metadata validation', () => {
     allows(this.title, ['http://localhost'], {
       application_type: 'web',
     });
-    rejects(this.title, ['http://some'], undefined, {
+    // LOGTO PATCH(redirect-uri-relaxation): non-loopback http uris are allowed for native clients
+    allows(this.title, ['http://some'], {
       application_type: 'native',
     });
     rejects(this.title, ['not-a-uri'], undefined, {
@@ -617,6 +635,10 @@ describe('Client metadata validation', () => {
     for (const scheme of ['javascript', 'vbscript', 'data', 'blob', 'file', 'about']) {
       rejects(this.title, [`${scheme}:foo`], `post_logout_redirect_uris must not use the ${scheme} URI scheme`, {
         application_type: 'native',
+      });
+      // LOGTO PATCH(redirect-uri-relaxation): forbidden schemes are rejected for web clients too
+      rejects(this.title, [`${scheme}:foo`], `post_logout_redirect_uris must not use the ${scheme} URI scheme`, {
+        application_type: 'web',
       });
     }
   });

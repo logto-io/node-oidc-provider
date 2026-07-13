@@ -1,5 +1,3 @@
-import { strict as assert } from 'node:assert';
-
 import { expect } from 'chai';
 
 import bootstrap from '../test_helper.js';
@@ -185,23 +183,24 @@ describe('OAuth 2.0 for Native Apps Best Current Practice features', () => {
         });
       });
 
-      it('rejects http protocol redirect_uris not using loopback uris', function () {
-        return assert.rejects(addClient(this.provider, {
+      // LOGTO PATCH(redirect-uri-relaxation): non-loopback http uris are allowed for native clients
+      it('allows http protocol redirect_uris not using loopback uris', function () {
+        return addClient(this.provider, {
           application_type: 'native',
           client_id: 'native-custom',
           grant_types: ['implicit'],
           response_types: ['id_token'],
           token_endpoint_auth_method: 'none',
           redirect_uris: ['http://rp.example.com/op/callback'],
-        }), (err) => {
-          expect(err).to.have.property('message', 'invalid_redirect_uri');
-          expect(err).to.have.property('error_description', 'redirect_uris for native clients using http as a protocol can only use loopback addresses as hostnames');
-          return true;
+        }).then((client) => {
+          expect(client.redirectUris).to.contain('http://rp.example.com/op/callback');
+          expect(client.redirectUriAllowed('http://rp.example.com/op/callback')).to.be.true;
         });
       });
 
-      it('rejects http protocol post_logout_redirect_uris not using loopback uris', function () {
-        return assert.rejects(addClient(this.provider, {
+      // LOGTO PATCH(redirect-uri-relaxation): non-loopback http uris are allowed for native clients
+      it('allows http protocol post_logout_redirect_uris not using loopback uris', function () {
+        return addClient(this.provider, {
           application_type: 'native',
           client_id: 'native-custom',
           grant_types: ['implicit'],
@@ -209,10 +208,9 @@ describe('OAuth 2.0 for Native Apps Best Current Practice features', () => {
           token_endpoint_auth_method: 'none',
           redirect_uris: ['http://[::1]/op/callback'],
           post_logout_redirect_uris: ['http://rp.example.com/op/logout'],
-        }), (err) => {
-          expect(err).to.have.property('message', 'invalid_client_metadata');
-          expect(err).to.have.property('error_description', 'post_logout_redirect_uris for native clients using http as a protocol can only use loopback addresses as hostnames');
-          return true;
+        }).then((client) => {
+          expect(client.postLogoutRedirectUris).to.contain('http://rp.example.com/op/logout');
+          expect(client.postLogoutRedirectUriAllowed('http://rp.example.com/op/logout')).to.be.true;
         });
       });
     });
