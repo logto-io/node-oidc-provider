@@ -25,7 +25,7 @@ on:
 
 jobs:
   run:
-    if: ${{ github.repository == 'panva/node-oidc-provider' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.repository == 'logto-io/node-oidc-provider' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
