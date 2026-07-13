@@ -20,8 +20,14 @@ Each patch records four things:
 
 ## Library patches
 
-None applied yet. Planned, in application order:
+### Client-specific interaction UID — `LOGTO PATCH(client-specific-interaction-uid)`
 
-1. **Client-specific interaction UID** — carry over `interaction_cookie_handler.js` plus the small hunks in `#getInteraction` and `interactions.js`, so each client keeps its own interaction session cookie.
-2. **Redirect URI validation relaxation** — minimal re-application after a requirements analysis; upstream 9.8.1 already relaxed the native custom-scheme rule, so only the still-needed lines return.
-3. **`scope` always present in token, introspection, and userinfo-bearing responses** — three one-line hunks (`grant_common.js`, `introspection.js`, `jwt.js`) replacing upstream's `scope || undefined`.
+- **What it does**: turns the interaction cookie value into a JSON mapping of client IDs to interaction UIDs, so concurrent sign-ins from different clients each resolve their own interaction. The requesting client is identified by the `Logto-App-Id` header (requests sent by the Logto Experience UI) or the `app_id` query parameter; a plain-string cookie from before the patch keeps working through a `_legacy` key. The mapping is stored percent-encoded — raw JSON is not a valid RFC 6265 cookie-value and strict servers (hapi, for one) reject the whole request over it; both pre-encoding formats (plain UID and the v8 fork's raw JSON) remain readable.
+- **Why upstream does not cover it**: there is no upstream equivalent feature, and the resolution point is a private class method (`Provider.#getInteraction`), unreachable from outside the library.
+- **Files touched**: `lib/helpers/interaction_cookie_handler.js` (new), `lib/actions/authorization/interactions.js`, `lib/provider.js`; tests in `test/client_specific_interaction_uid/`.
+- **What breaks if dropped**: two applications signing in concurrently in the same browser overwrite each other's interaction cookie, and Logto Experience requests carrying `Logto-App-Id` resolve the wrong interaction or none at all.
+
+Planned next, in application order:
+
+1. **Redirect URI validation relaxation** — minimal re-application after a requirements analysis; upstream 9.8.1 already relaxed the native custom-scheme rule, so only the still-needed lines return.
+2. **`scope` always present in token, introspection, and userinfo-bearing responses** — three one-line hunks (`grant_common.js`, `introspection.js`, `jwt.js`) replacing upstream's `scope || undefined`.

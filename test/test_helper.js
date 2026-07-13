@@ -22,6 +22,7 @@ import nanoid from '../lib/helpers/nanoid.js';
 import epochTime from '../lib/helpers/epoch_time.js';
 import Provider from '../lib/index.js';
 import instance from '../lib/helpers/weak_cache.js';
+import { getInteractionUid } from '../lib/helpers/interaction_cookie_handler.js';
 
 import { Account, TestAdapter } from './models.js';
 import keys from './keys.js';
@@ -315,9 +316,12 @@ export default function testHelper(importMetaUrl, {
             expect(query).to.be.null;
             expect(response).to.have.nested.property('headers.set-cookie').that.is.an('array');
 
-            const uid = readCookie(getSetCookies(response)[0]);
-            expect(readCookie(getSetCookies(response)[0]))
-              .to.equal(readCookie(getSetCookies(response)[1]));
+            /**
+             * LOGTO PATCH(client-specific-interaction-uid): the interaction cookie holds a JSON
+             * mapping of client IDs to UIDs, while the resume cookie still holds the plain UID.
+             */
+            const uid = getInteractionUid(readCookie(getSetCookies(response)[0]), this.client_id);
+            expect(uid).to.equal(readCookie(getSetCookies(response)[1]));
 
             const interaction = TestAdapter.for('Interaction').syncFind(uid);
 
@@ -340,7 +344,11 @@ export default function testHelper(importMetaUrl, {
 
     AuthorizationRequest.prototype.validateInteraction = (eName, ...eReasons) => {
       return (response) => {
-        const uid = readCookie(getSetCookies(response)[0]);
+        /**
+         * LOGTO PATCH(client-specific-interaction-uid): resolve the UID through the cookie
+         * mapping's backward-compatibility key.
+         */
+        const uid = getInteractionUid(readCookie(getSetCookies(response)[0]), null);
         const { prompt: { name, reasons } } = TestAdapter.for('Interaction').syncFind(uid);
         expect(name).to.equal(eName);
         expect(reasons).to.contain.members(eReasons);
