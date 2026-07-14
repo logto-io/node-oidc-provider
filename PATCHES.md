@@ -27,7 +27,13 @@ Each patch records four things:
 - **Files touched**: `lib/helpers/interaction_cookie_handler.js` (new), `lib/actions/authorization/interactions.js`, `lib/provider.js`; tests in `test/client_specific_interaction_uid/`.
 - **What breaks if dropped**: two applications signing in concurrently in the same browser overwrite each other's interaction cookie, and Logto Experience requests carrying `Logto-App-Id` resolve the wrong interaction or none at all.
 
+### Scope always present — `LOGTO PATCH(scope-always-present)`
+
+- **What it does**: token endpoint responses, introspection responses, and JWT access token payloads always carry the token's `scope` verbatim, instead of upstream's conditional omission (`source.scope ? at.scope : (at.scope || undefined)` and `scope || undefined`). Observable difference: an access token whose scope is empty (or whose source token had none) still yields a `scope` member; `undefined` scopes still drop out of the JSON as before.
+- **Why upstream does not cover it**: RFC 6749 §5.1 only requires `scope` in the response when it differs from the request, and upstream has omitted falsy scopes since the v8.4.0 RAR refactor (`e9fb5735`). Logto clients rely on `scope` always being echoed. This re-applies the v8 fork patches `4b621adf` and `de2d8fd6`.
+- **Files touched**: `lib/helpers/grant_common.js` (`buildTokenResponse`, shared by the authorization_code, ciba, device_code, and refresh_token grants), `lib/actions/grants/client_credentials.js`, `lib/actions/introspection.js`, `lib/models/formats/jwt.js`; tests in `test/scope_always_present/`. One hunk more than originally planned: `client_credentials` builds its response body without `buildTokenResponse`, so it carries its own hunk (behaviorally inert in v9 — its token scope is never an empty string — but kept so every response site shares the same invariant).
+- **What breaks if dropped**: responses for empty-scope tokens lose the `scope` member and `test/scope_always_present/` fails.
+
 Planned next, in application order:
 
 1. **Redirect URI validation relaxation** — minimal re-application after a requirements analysis; upstream 9.8.1 already relaxed the native custom-scheme rule, so only the still-needed lines return.
-2. **`scope` always present in token, introspection, and userinfo-bearing responses** — three one-line hunks (`grant_common.js`, `introspection.js`, `jwt.js`) replacing upstream's `scope || undefined`.
