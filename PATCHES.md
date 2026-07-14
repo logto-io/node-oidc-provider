@@ -9,6 +9,8 @@ Each patch records four things:
 - **Files touched**
 - **What breaks if dropped** — the observable failure that tells us the patch is missing.
 
+To audit this inventory, run `git diff v9.9.1 --stat` on the branch: every file in that diff must appear in a **Files touched** list below (or be this file). The next upstream upgrade starts from that command and this document — re-apply each section onto the new tag, or retire it with a note here.
+
 ## Repository scaffolding
 
 ### CI repository guards
@@ -24,7 +26,7 @@ Each patch records four things:
 
 - **What it does**: turns the interaction cookie value into a JSON mapping of client IDs to interaction UIDs, so concurrent sign-ins from different clients each resolve their own interaction. The requesting client is identified by the `Logto-App-Id` header (requests sent by the Logto Experience UI) or the `app_id` query parameter; a plain-string cookie from before the patch keeps working through a `_legacy` key. The mapping is stored percent-encoded — raw JSON is not a valid RFC 6265 cookie-value and strict servers (hapi, for one) reject the whole request over it; both pre-encoding formats (plain UID and the v8 fork's raw JSON) remain readable.
 - **Why upstream does not cover it**: there is no upstream equivalent feature, and the resolution point is a private class method (`Provider.#getInteraction`), unreachable from outside the library.
-- **Files touched**: `lib/helpers/interaction_cookie_handler.js` (new), `lib/actions/authorization/interactions.js`, `lib/provider.js`; tests in `test/client_specific_interaction_uid/`.
+- **Files touched**: `lib/helpers/interaction_cookie_handler.js` (new), `lib/actions/authorization/interactions.js`, `lib/provider.js`; tests in `test/client_specific_interaction_uid/`, plus two hunks in the shared harness `test/test_helper.js` (the interaction cookie now holds the mapping, so the harness resolves UIDs through `getInteractionUid`).
 - **What breaks if dropped**: two applications signing in concurrently in the same browser overwrite each other's interaction cookie, and Logto Experience requests carrying `Logto-App-Id` resolve the wrong interaction or none at all.
 
 ### Scope always present — `LOGTO PATCH(scope-always-present)`
