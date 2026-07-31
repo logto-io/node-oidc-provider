@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { createSandbox } from 'sinon';
 
 import bootstrap from '../test_helper.js';
-import { getInteractionUid } from '../../lib/helpers/interaction_cookie_handler.js';
+import { getInteractionUid, setInteractionUid } from '../../lib/helpers/interaction_cookie_handler.js';
 
 const sinon = createSandbox();
 
@@ -20,8 +20,12 @@ function getInteractionCookieValue(response) {
   return header.split(';')[0].slice('_interaction='.length);
 }
 
+function decodeMapping(value) {
+  return JSON.parse(decodeURIComponent(value));
+}
+
 function getInteractionCookieMapping(response) {
-  return JSON.parse(decodeURIComponent(getInteractionCookieValue(response)));
+  return decodeMapping(getInteractionCookieValue(response));
 }
 
 describe('client-specific interaction UIDs', () => {
@@ -65,6 +69,32 @@ describe('client-specific interaction UIDs', () => {
 
     const mapping = getInteractionCookieMapping(second);
     expect(mapping).to.deep.equal({ client: uid1, 'client-2': uid2, _legacy: uid2 });
+  });
+
+  it('bounds an oversized existing cookie mapping on the next write', async function () {
+    const staleClientIds = Array.from({ length: 12 }, (_, i) => `https://client-${i}.example.com/.well-known/${'x'.repeat(160)}.json`);
+    const staleMapping = Object.fromEntries(staleClientIds.map((clientId, i) => [clientId, `stale-uid-${i}`]));
+    const staleValue = encodeURIComponent(JSON.stringify({ ...staleMapping, _legacy: 'stale-uid-11' }));
+
+    this.agent._saveCookies.bind(this.agent)({
+      request: { url: this.provider.issuer },
+      headers: { 'set-cookie': [`_interaction=${staleValue}; path=/; httponly`] },
+    });
+
+    const response = await this.agent.get('/auth')
+      .query(new this.AuthorizationRequest({ response_type: 'code', scope: 'openid' }))
+      .expect(303);
+    const uid = response.headers.location.split('/interaction/')[1];
+
+    const value = getInteractionCookieValue(response);
+    expect(value.length).to.be.at.most(3072);
+
+    const mapping = decodeMapping(value);
+    expect(mapping.client).to.equal(uid);
+    expect(mapping._legacy).to.equal(uid);
+    expect(Object.keys(mapping).filter((key) => key !== '_legacy')).to.have.lengthOf.at.most(10);
+    expect(mapping).to.not.have.property(staleClientIds[0]);
+    expect(mapping).to.have.property(staleClientIds[11], 'stale-uid-11');
   });
 
   it('resolves the interaction for the client identified by the Logto-App-Id header', async function () {
@@ -128,5 +158,64 @@ describe('client-specific interaction UIDs', () => {
     const raw = JSON.stringify({ client: 'uid-a', _legacy: 'uid-b' });
     expect(getInteractionUid(raw, 'client')).to.equal('uid-a');
     expect(getInteractionUid(raw, 'other')).to.equal('uid-b');
+  });
+
+  describe('bounded client map', () => {
+    it('evicts the least recently written client beyond the entry bound', () => {
+      let value;
+      for (let i = 0; i < 11; i += 1) {
+        value = setInteractionUid(value, `client-${i}`, `uid-${i}`);
+      }
+
+      const mapping = decodeMapping(value);
+      expect(Object.keys(mapping).filter((key) => key !== '_legacy')).to.have.lengthOf(10);
+      expect(mapping).to.not.have.property('client-0');
+      expect(mapping).to.have.property('client-1', 'uid-1');
+      expect(mapping).to.have.property('client-10', 'uid-10');
+      expect(getInteractionUid(value, null)).to.equal('uid-10');
+    });
+
+    it('re-writing a client refreshes its eviction order', () => {
+      let value;
+      for (let i = 0; i < 10; i += 1) {
+        value = setInteractionUid(value, `client-${i}`, `uid-${i}`);
+      }
+      value = setInteractionUid(value, 'client-0', 'uid-0-again');
+      value = setInteractionUid(value, 'client-10', 'uid-10');
+
+      const mapping = decodeMapping(value);
+      expect(mapping).to.have.property('client-0', 'uid-0-again');
+      expect(mapping).to.not.have.property('client-1');
+      expect(mapping).to.have.property('client-10', 'uid-10');
+    });
+
+    it('keeps the encoded value within the size bound for CIMD-length client IDs', () => {
+      /**
+       * Ten of these entries encode to ~3.8 KB, well over the 3072-byte bound, so the size
+       * bound evicts entries before the entry-count bound is ever reached.
+       */
+      const clientIdFor = (i) => `https://client-${i}.example.com/.well-known/${'x'.repeat(300)}.json`;
+
+      let value;
+      for (let i = 0; i < 10; i += 1) {
+        value = setInteractionUid(value, clientIdFor(i), `uid-${i}`);
+      }
+
+      expect(value.length).to.be.at.most(3072);
+      expect(getInteractionUid(value, clientIdFor(9))).to.equal('uid-9');
+
+      const mapping = decodeMapping(value);
+      expect(mapping).to.not.have.property(clientIdFor(0));
+      expect(mapping).to.not.have.property(clientIdFor(1));
+    });
+
+    it('falls back to a legacy-only mapping when a single entry alone exceeds the size bound', () => {
+      const hugeClientId = `https://client.example.com/${'x'.repeat(4000)}`;
+      const value = setInteractionUid(undefined, hugeClientId, 'uid');
+
+      expect(value.length).to.be.at.most(3072);
+      expect(getInteractionUid(value, hugeClientId)).to.equal('uid');
+      expect(decodeMapping(value)).to.deep.equal({ _legacy: 'uid' });
+    });
   });
 });
