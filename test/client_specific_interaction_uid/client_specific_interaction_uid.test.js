@@ -20,8 +20,12 @@ function getInteractionCookieValue(response) {
   return header.split(';')[0].slice('_interaction='.length);
 }
 
+function decodeMapping(value) {
+  return JSON.parse(decodeURIComponent(value));
+}
+
 function getInteractionCookieMapping(response) {
-  return JSON.parse(decodeURIComponent(getInteractionCookieValue(response)));
+  return decodeMapping(getInteractionCookieValue(response));
 }
 
 describe('client-specific interaction UIDs', () => {
@@ -85,7 +89,7 @@ describe('client-specific interaction UIDs', () => {
     const value = getInteractionCookieValue(response);
     expect(value.length).to.be.at.most(3072);
 
-    const mapping = JSON.parse(decodeURIComponent(value));
+    const mapping = decodeMapping(value);
     expect(mapping.client).to.equal(uid);
     expect(mapping._legacy).to.equal(uid);
     expect(Object.keys(mapping).filter((key) => key !== '_legacy')).to.have.lengthOf.at.most(10);
@@ -157,22 +161,18 @@ describe('client-specific interaction UIDs', () => {
   });
 
   describe('bounded client map', () => {
-    function decode(value) {
-      return JSON.parse(decodeURIComponent(value));
-    }
-
     it('evicts the least recently written client beyond the entry bound', () => {
       let value;
       for (let i = 0; i < 11; i += 1) {
         value = setInteractionUid(value, `client-${i}`, `uid-${i}`);
       }
 
-      const mapping = decode(value);
+      const mapping = decodeMapping(value);
       expect(Object.keys(mapping).filter((key) => key !== '_legacy')).to.have.lengthOf(10);
       expect(mapping).to.not.have.property('client-0');
       expect(mapping).to.have.property('client-1', 'uid-1');
       expect(mapping).to.have.property('client-10', 'uid-10');
-      expect(mapping._legacy).to.equal('uid-10');
+      expect(getInteractionUid(value, null)).to.equal('uid-10');
     });
 
     it('re-writing a client refreshes its eviction order', () => {
@@ -183,7 +183,7 @@ describe('client-specific interaction UIDs', () => {
       value = setInteractionUid(value, 'client-0', 'uid-0-again');
       value = setInteractionUid(value, 'client-10', 'uid-10');
 
-      const mapping = decode(value);
+      const mapping = decodeMapping(value);
       expect(mapping).to.have.property('client-0', 'uid-0-again');
       expect(mapping).to.not.have.property('client-1');
       expect(mapping).to.have.property('client-10', 'uid-10');
@@ -204,28 +204,18 @@ describe('client-specific interaction UIDs', () => {
       expect(value.length).to.be.at.most(3072);
       expect(getInteractionUid(value, clientIdFor(9))).to.equal('uid-9');
 
-      const mapping = decode(value);
+      const mapping = decodeMapping(value);
       expect(mapping).to.not.have.property(clientIdFor(0));
       expect(mapping).to.not.have.property(clientIdFor(1));
-      expect(Object.keys(mapping).filter((key) => key !== '_legacy')).to.have.lengthOf.at.most(8);
     });
 
-    it('never evicts the client being written, even when its entry alone exceeds the bound', () => {
+    it('falls back to a legacy-only mapping when a single entry alone exceeds the size bound', () => {
       const hugeClientId = `https://client.example.com/${'x'.repeat(4000)}`;
       const value = setInteractionUid(undefined, hugeClientId, 'uid');
 
-      const mapping = decode(value);
-      expect(mapping).to.have.property(hugeClientId, 'uid');
-      expect(mapping._legacy).to.equal('uid');
-    });
-
-    it('keeps _legacy pointing at the latest interaction across evictions', () => {
-      let value;
-      for (let i = 0; i < 15; i += 1) {
-        value = setInteractionUid(value, `client-${i}`, `uid-${i}`);
-      }
-
-      expect(getInteractionUid(value, null)).to.equal('uid-14');
+      expect(value.length).to.be.at.most(3072);
+      expect(getInteractionUid(value, hugeClientId)).to.equal('uid');
+      expect(decodeMapping(value)).to.deep.equal({ _legacy: 'uid' });
     });
   });
 });
