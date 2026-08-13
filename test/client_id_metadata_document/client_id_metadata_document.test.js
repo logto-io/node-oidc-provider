@@ -1,8 +1,15 @@
 import { expect } from 'chai';
+import timekeeper from 'timekeeper';
 
 import bootstrap, { mock } from '../test_helper.js';
-import { isValidClientIdUrl } from '../../lib/helpers/client_id_metadata_document.js';
+import Provider from '../../lib/index.js';
+import als from '../../lib/helpers/als.js';
+import {
+  isValidClientIdUrl,
+  resolveClientByMetadataDocument,
+} from '../../lib/helpers/client_id_metadata_document.js';
 import keys, { stripPrivateJWKFields } from '../keys.js';
+import { TestAdapter } from '../models.js';
 
 const CLIENT_ID_URL = 'https://app.example.com/metadata';
 const publicKey = stripPrivateJWKFields(keys[0]);
@@ -12,6 +19,44 @@ const VALID_METADATA = {
   token_endpoint_auth_method: 'none',
   client_name: 'Test App',
 };
+
+function createProvider(feature = {}) {
+  return new Provider('https://op.example.com', {
+    adapter: TestAdapter,
+    features: {
+      clientIdMetadataDocument: {
+        enabled: true,
+        ack: 'draft-02',
+        ...feature,
+      },
+    },
+    fetch: (url, options) => {
+      delete options.dispatcher;
+      return globalThis.fetch(url, options);
+    },
+  });
+}
+
+function resolve(provider, id, ctx = {}) {
+  return als.run(ctx, () => resolveClientByMetadataDocument(provider, id));
+}
+
+function mockMetadata(id, metadata = {}, maxAge = 3600) {
+  const url = new URL(id);
+  return mock(url.origin)
+    .intercept({ path: `${url.pathname}${url.search}` })
+    .reply(200, JSON.stringify({
+      client_id: id,
+      redirect_uris: ['https://client.example.com/cb'],
+      token_endpoint_auth_method: 'none',
+      ...metadata,
+    }), {
+      headers: {
+        'content-type': 'application/json',
+        'cache-control': `max-age=${maxAge}`,
+      },
+    });
+}
 
 describe('Client ID Metadata Document', () => {
   before(bootstrap(import.meta.url));
@@ -512,6 +557,11 @@ describe('Client ID Metadata Document', () => {
     });
 
     it('rejects when response is not valid JSON', function () {
+      let emitted;
+      this.provider.once('authorization.error', (_ctx, err) => {
+        emitted = err;
+      });
+
       mock('https://notjson.example.com')
         .intercept({ path: '/client' })
         .reply(200, 'this is not json', {
@@ -528,6 +578,9 @@ describe('Client ID Metadata Document', () => {
         .expect(400)
         .expect((response) => {
           expect(response.text).to.contain('invalid_client');
+          expect(emitted.cause).to.be.instanceOf(SyntaxError);
+          expect(emitted.error_detail).to.equal(emitted.cause.message);
+          expect(response.text).not.to.contain(emitted.error_detail);
         });
     });
 
@@ -610,6 +663,153 @@ describe('Client ID Metadata Document', () => {
         .expect((response) => {
           expect(response.text).to.contain('invalid_client');
         });
+    });
+  });
+
+  describe('metadata document cache', () => {
+    afterEach(timekeeper.reset);
+
+    it('expires entries using their response-derived TTL', async () => {
+      const provider = createProvider();
+      const id = 'https://ttl-cache.example.com/client';
+      timekeeper.freeze(new Date('2026-08-03T12:00:00.000Z'));
+      mockMetadata(id, { client_name: 'first' }, 30);
+
+      const first = await resolve(provider, id);
+      first.localMutation = true;
+      const cached = await resolve(provider, id);
+
+      expect(cached).not.to.equal(first);
+      expect(cached.clientName).to.equal('first');
+      expect(cached).not.to.have.property('localMutation');
+
+      timekeeper.travel(Date.now() + 30_001);
+      mockMetadata(id, { client_name: 'refreshed' }, 30);
+
+      expect((await resolve(provider, id)).clientName).to.equal('refreshed');
+    });
+
+    it('evicts least-recently-used entries', async () => {
+      const provider = createProvider();
+      const target = 'https://lru-cache.example.com/client/target';
+      mockMetadata(target, { client_name: 'first' });
+      expect((await resolve(provider, target)).clientName).to.equal('first');
+
+      for (let i = 0; i < 200; i++) {
+        const id = `https://lru-cache.example.com/client/${i}`;
+        mockMetadata(id);
+        await resolve(provider, id);
+      }
+
+      mockMetadata(target, { client_name: 'refetched' });
+      expect((await resolve(provider, target)).clientName).to.equal('refetched');
+    });
+
+    it('isolates entries per provider', async () => {
+      const firstProvider = createProvider();
+      const secondProvider = createProvider();
+      const id = 'https://isolated-cache.example.com/client';
+      mockMetadata(id, { client_name: 'first provider' });
+      mockMetadata(id, { client_name: 'second provider' });
+
+      expect((await resolve(firstProvider, id)).clientName).to.equal('first provider');
+      expect((await resolve(secondProvider, id)).clientName).to.equal('second provider');
+    });
+  });
+
+  describe('concurrent metadata document fetches', () => {
+    it('coalesces fetches while preserving request-scoped callbacks and clients', async () => {
+      const allowFetchCalls = [];
+      const allowClientCalls = [];
+      const provider = createProvider({
+        async allowFetch(ctx, clientId) {
+          allowFetchCalls.push({ ctx, clientId });
+          return true;
+        },
+        async allowClient(ctx, client) {
+          allowClientCalls.push({ ctx, client });
+          return true;
+        },
+      });
+      const id = 'https://concurrent-cache.example.com/client';
+      const firstContext = { request: 'first' };
+      const secondContext = { request: 'second' };
+      const cachedContext = { request: 'cached' };
+      mockMetadata(id, { client_name: 'shared' }).delay(20);
+
+      const [first, second] = await Promise.all([
+        resolve(provider, id, firstContext),
+        resolve(provider, id, secondContext),
+      ]);
+      const cached = await resolve(provider, id, cachedContext);
+
+      expect(first).not.to.equal(second);
+      expect(cached).not.to.equal(first);
+      expect(cached).not.to.equal(second);
+      expect(first.clientName).to.equal('shared');
+      expect(second.clientName).to.equal('shared');
+      expect(cached.clientName).to.equal('shared');
+      expect(allowFetchCalls).to.deep.equal([
+        { ctx: firstContext, clientId: id },
+        { ctx: secondContext, clientId: id },
+      ]);
+      expect(allowClientCalls).to.have.length(3);
+      expect(allowClientCalls[0]).to.deep.equal({ ctx: firstContext, client: first });
+      expect(allowClientCalls[1]).to.deep.equal({ ctx: secondContext, client: second });
+      expect(allowClientCalls[2]).to.deep.equal({ ctx: cachedContext, client: cached });
+    });
+
+    it('clears failed in-flight fetches so later requests can retry', async () => {
+      const allowFetchCalls = [];
+      const allowClientCalls = [];
+      const provider = createProvider({
+        async allowFetch(ctx, clientId) {
+          allowFetchCalls.push({ ctx, clientId });
+          return true;
+        },
+        async allowClient(ctx, client) {
+          allowClientCalls.push({ ctx, client });
+          return true;
+        },
+      });
+      const id = 'https://concurrent-failure.example.com/client';
+      const firstContext = { request: 'first' };
+      const secondContext = { request: 'second' };
+      const retryContext = { request: 'retry' };
+      const url = new URL(id);
+      mock(url.origin)
+        .intercept({ path: url.pathname })
+        .reply(200, 'not json', {
+          headers: { 'content-type': 'application/json' },
+        })
+        .delay(20);
+
+      const failed = await Promise.allSettled([
+        resolve(provider, id, firstContext),
+        resolve(provider, id, secondContext),
+      ]);
+
+      expect(failed).to.have.length(2);
+      for (const result of failed) {
+        expect(result.status).to.equal('rejected');
+        expect(result.reason.cause).to.be.instanceOf(SyntaxError);
+      }
+      expect(allowFetchCalls).to.deep.equal([
+        { ctx: firstContext, clientId: id },
+        { ctx: secondContext, clientId: id },
+      ]);
+      expect(allowClientCalls).to.be.empty;
+
+      mockMetadata(id, { client_name: 'retry' });
+      const retried = await resolve(provider, id, retryContext);
+
+      expect(retried.clientName).to.equal('retry');
+      expect(allowFetchCalls).to.deep.equal([
+        { ctx: firstContext, clientId: id },
+        { ctx: secondContext, clientId: id },
+        { ctx: retryContext, clientId: id },
+      ]);
+      expect(allowClientCalls).to.deep.equal([{ ctx: retryContext, client: retried }]);
     });
   });
 

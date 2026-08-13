@@ -44,3 +44,9 @@ db.sqlite
 
 # TS test
 types/*.js
+
+# Build output
+dist
+
+# Packed tarballs
+*.tgz

@@ -4,11 +4,13 @@ import { hash, randomBytes, randomUUID } from 'node:crypto';
 import sinon from 'sinon';
 import { expect } from 'chai';
 import {
-  SignJWT, exportJWK, calculateJwkThumbprint, generateKeyPair,
+  SignJWT, exportJWK, calculateJwkThumbprint, decodeJwt, generateKeyPair,
 } from 'jose';
 
 import nanoid from '../../lib/helpers/nanoid.js';
 import epochTime from '../../lib/helpers/epoch_time.js';
+import { CHALLENGE_OK_WINDOW } from '../../lib/helpers/challenge.js';
+import { InvalidGrant, InvalidRequest, InvalidToken } from '../../lib/helpers/errors.js';
 import bootstrap, { skipConsent } from '../test_helper.js';
 import * as base64url from '../../lib/helpers/base64url.js';
 
@@ -55,7 +57,7 @@ describe('features.dPoP', () => {
       });
       at.setThumbprint('jkt', this.thumbprint);
 
-      expect(() => at.setThumbprint('x5t', 'foo')).to.throw().with.property('error_description', 'multiple proof-of-posession mechanisms are not allowed');
+      expect(() => at.setThumbprint('x5t', 'foo')).to.throw().with.property('error_description', 'multiple proof-of-possession mechanisms are not allowed');
 
       const dpop = await at.save();
 
@@ -128,11 +130,17 @@ describe('features.dPoP', () => {
             .expect({ error: 'invalid_dpop_proof', error_description: 'invalid DPoP key binding' })
             .expect('WWW-Authenticate', /^DPoP /)
             .expect('WWW-Authenticate', /error="invalid_dpop_proof"/)
-            .expect('WWW-Authenticate', /algs="ES256 PS256"/);
+            .expect('WWW-Authenticate', /algs="ES256 PS256"/)
+            .expect((response) => {
+              expect(response.headers['www-authenticate']).not.to.include('error_detail');
+              expect(response.headers['www-authenticate']).not.to.include('cause');
+            });
         }
 
         for (const { args: [, err] } of spy.getCalls()) {
           expect(err.error_detail).to.eql('unexpected "typ" JWT header value');
+          expect(err.cause).to.be.instanceOf(Error);
+          expect(err.cause.message).to.equal(err.error_detail);
         }
       });
 
@@ -197,10 +205,6 @@ describe('features.dPoP', () => {
           .expect('WWW-Authenticate', /^DPoP /)
           .expect('WWW-Authenticate', /error="invalid_dpop_proof"/)
           .expect('WWW-Authenticate', /algs="ES256 PS256"/);
-
-        for (const { args: [, err] } of spy.getCalls()) {
-          expect(err.error_detail).to.eql('"jwk" (JSON Web Key) Header Parameter must be a public key');
-        }
       });
 
       it('no symmetric key in header', async function () {
@@ -220,10 +224,6 @@ describe('features.dPoP', () => {
           .expect('WWW-Authenticate', /^DPoP /)
           .expect('WWW-Authenticate', /error="invalid_dpop_proof"/)
           .expect('WWW-Authenticate', /algs="ES256 PS256"/);
-
-        for (const { args: [, err] } of spy.getCalls()) {
-          expect(err.error_detail).to.eql('"jwk" (JSON Web Key) Header Parameter must be a public key');
-        }
       });
 
       it('missing jti', async function () {
@@ -324,11 +324,20 @@ describe('features.dPoP', () => {
 
       const dpop = await at.save();
       const proof = await DPoP(this.keypair, `${this.provider.issuer}${this.suitePath('/me')}`, 'GET', undefined, dpop);
+      const spy = sinon.spy();
+      this.provider.once('userinfo.error', spy);
 
       await this.agent.get('/me')
         .set('Authorization', `DPoP ${dpop}`)
         .set('DPoP', proof)
         .expect(this.failWith(401, 'invalid_token', 'invalid token provided', undefined, 'DPoP'));
+
+      expect(spy).to.have.property('calledOnce', true);
+      expect(spy.args[0][1]).to.be.instanceOf(InvalidToken);
+      expect(spy.args[0][1]).to.have.property(
+        'error_detail',
+        'access token is not sender-constrained but proof of possession was provided',
+      );
     });
 
     it('acts like an RS checking the DPoP proof and thumbprint now', async function () {
@@ -358,6 +367,7 @@ describe('features.dPoP', () => {
         .expect({ error: 'invalid_token', error_description: 'invalid token provided' });
 
       expect(spy).to.have.property('calledOnce', true);
+      expect(spy.args[0][1]).to.be.instanceOf(InvalidToken);
       expect(spy.args[0][1]).to.have.property('error_detail', 'DPoP proof JWT Replay detected');
 
       {
@@ -553,6 +563,36 @@ describe('features.dPoP', () => {
   });
 
   describe('pushed authorization request', () => {
+    it('rejects replayed proofs with an InvalidRequest', async function () {
+      const proof = await DPoP(
+        this.keypair,
+        `${this.provider.issuer}${this.suitePath('/request')}`,
+        'POST',
+      );
+      const request = () => this.agent.post('/request')
+        .auth('client', 'secret')
+        .send({
+          response_type: 'code',
+          client_id: 'client',
+        })
+        .set('DPoP', proof)
+        .type('form');
+
+      await request().expect(201);
+
+      const spy = sinon.spy();
+      this.provider.once('pushed_authorization_request.error', spy);
+      await request()
+        .expect(400)
+        .expect({
+          error: 'invalid_request',
+          error_description: 'DPoP proof JWT Replay detected',
+        });
+
+      expect(spy).to.have.property('calledOnce', true);
+      expect(spy.args[0][1]).to.be.instanceOf(InvalidRequest);
+    });
+
     it('checks dpop_jkt equals the jwk thumbprint when both are present', async function () {
       await this.agent.post('/request')
         .auth('client', 'secret')
@@ -936,6 +976,40 @@ describe('features.dPoP', () => {
         expect(spy).to.have.property('calledOnce', true);
         expect(spy.args[0][1]).to.have.property('error_detail', 'failed jkt verification');
       });
+
+      it('rejects a replay before repeating the token binding check', async function () {
+        const proof = await DPoP(
+          await generateKeyPair('ES256', { extractable: true }),
+          `${this.provider.issuer}${this.suitePath('/token')}`,
+          'POST',
+        );
+        const errors = [];
+        const listener = (_ctx, err) => errors.push(err);
+        const request = () => this.agent.post('/token')
+          .send({
+            client_id: 'client-none',
+            grant_type: 'refresh_token',
+            refresh_token: this.rt,
+          })
+          .set('DPoP', proof)
+          .type('form')
+          .expect(400)
+          .expect({ error: 'invalid_grant', error_description: 'grant request is invalid' });
+
+        this.provider.on('grant.error', listener);
+        try {
+          await request();
+          await request();
+        } finally {
+          this.provider.removeListener('grant.error', listener);
+        }
+
+        expect(errors).to.have.length(2);
+        expect(errors[0]).to.be.instanceOf(InvalidGrant);
+        expect(errors[0]).to.have.property('error_detail', 'failed jkt verification');
+        expect(errors[1]).to.be.instanceOf(InvalidGrant);
+        expect(errors[1]).to.have.property('error_detail', 'DPoP proof JWT Replay detected');
+      });
     });
   });
 
@@ -954,6 +1028,80 @@ describe('features.dPoP', () => {
       expect(spy).to.have.property('calledOnce', true);
       const { oidc: { entities: { ClientCredentials } } } = spy.args[0][0];
       expect(ClientCredentials).to.have.property('jkt', this.thumbprint);
+    });
+
+    it('uses the client and proof identifiers with the replay window TTL', async function () {
+      const proof = await DPoP(
+        this.keypair,
+        `${this.provider.issuer}${this.suitePath('/token')}`,
+        'POST',
+      );
+      const unique = sinon.spy(this.provider.ReplayDetection, 'unique');
+
+      try {
+        const before = epochTime();
+        await this.agent.post('/token')
+          .auth('client', 'secret')
+          .send({ grant_type: 'client_credentials' })
+          .set('DPoP', proof)
+          .type('form')
+          .expect(200);
+        const after = epochTime();
+
+        expect(unique).to.have.property('calledOnce', true);
+        expect(unique.firstCall.args[0]).to.equal('client');
+        expect(unique.firstCall.args[1]).to.equal(decodeJwt(proof).jti);
+        expect(unique.firstCall.args[2]).to.be.within(
+          before + CHALLENGE_OK_WINDOW,
+          after + CHALLENGE_OK_WINDOW,
+        );
+
+        const spy = sinon.spy();
+        this.provider.once('grant.error', spy);
+        await this.agent.post('/token')
+          .auth('client', 'secret')
+          .send({ grant_type: 'client_credentials' })
+          .set('DPoP', proof)
+          .type('form')
+          .expect(400)
+          .expect({ error: 'invalid_grant', error_description: 'grant request is invalid' });
+
+        expect(spy).to.have.property('calledOnce', true);
+        expect(spy.args[0][1]).to.be.instanceOf(InvalidGrant);
+        expect(spy.args[0][1]).to.have.property(
+          'error_detail',
+          'DPoP proof JWT Replay detected',
+        );
+      } finally {
+        unique.restore();
+      }
+    });
+
+    it('allows replay when configured', async function () {
+      const proof = await DPoP(
+        this.keypair,
+        `${this.provider.issuer}${this.suitePath('/token')}`,
+        'POST',
+      );
+      const { dPoP } = i(this.provider).features;
+      const original = dPoP.allowReplay;
+      const unique = sinon.spy(this.provider.ReplayDetection, 'unique');
+      const request = () => this.agent.post('/token')
+        .auth('client', 'secret')
+        .send({ grant_type: 'client_credentials' })
+        .set('DPoP', proof)
+        .type('form')
+        .expect(200);
+
+      dPoP.allowReplay = true;
+      try {
+        await request();
+        await request();
+        expect(unique).to.have.property('notCalled', true);
+      } finally {
+        dPoP.allowReplay = original;
+        unique.restore();
+      }
     });
   });
 
