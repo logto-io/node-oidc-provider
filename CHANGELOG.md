@@ -2,6 +2,87 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [9.11.3](https://github.com/panva/node-oidc-provider/compare/v9.11.2...v9.11.3) (2026-08-08)
+
+### Fixes
+
+* omit undefined response parameters ([0c65aa6](https://github.com/panva/node-oidc-provider/commit/0c65aa672aded69b4d555bb90f7116e4dbb1e906))
+
+### Refactor
+
+* drop the @koa/cors runtime dependency ([4eca0f2](https://github.com/panva/node-oidc-provider/commit/4eca0f2eaa7e7722fe5252aa87deff7a04384687))
+* drop the eta runtime dependency ([f0da9d2](https://github.com/panva/node-oidc-provider/commit/f0da9d203d8fe2598e59340d4f975fc1bdc7ab5d))
+* drop the jsesc runtime dependency ([b2f6c0c](https://github.com/panva/node-oidc-provider/commit/b2f6c0c246a9b94dc7aac8324e7fa43b9f1d4720))
+* drop the nanoid runtime dependency ([86a42da](https://github.com/panva/node-oidc-provider/commit/86a42da6679fa5c577e7985110ee5811dcbaf3c1))
+* drop the quick-lru runtime dependency ([e818a6d](https://github.com/panva/node-oidc-provider/commit/e818a6d7e5fc4a5d0248bb54c66e68979186d819))
+* drop the raw-body runtime dependency ([9312ca7](https://github.com/panva/node-oidc-provider/commit/9312ca7e6bd3b51014b7d4f583c6bba3ab15c482))
+* replace @koa/router with an internal router ([3b33e5f](https://github.com/panva/node-oidc-provider/commit/3b33e5f282b9862471a61adae053b0d3c704fe06))
+
+## [9.11.2](https://github.com/panva/node-oidc-provider/compare/v9.11.1...v9.11.2) (2026-08-03)
+
+### Fixes
+
+* **adapter:** apply memory entry expiration correctly ([ff6c0d9](https://github.com/panva/node-oidc-provider/commit/ff6c0d9ec481bc748b58b00c690fc220fb0b3c2d))
+* **adapter:** isolate default memory storage per provider ([b4d27aa](https://github.com/panva/node-oidc-provider/commit/b4d27aa402467d61245288388a8c00719bc596d3))
+* **cimd:** bound the metadata document cache ([62e1f66](https://github.com/panva/node-oidc-provider/commit/62e1f66e82c00950723f7ba9a8bd7fb28a7b0d70))
+* **grants:** isolate feature-specific grant parameters ([5490fc9](https://github.com/panva/node-oidc-provider/commit/5490fc9c2fced99db624f4cc522ae0ec257da26c))
+
+### Refactor
+
+* **adapter:** maintain memory adapter indexes ([3196032](https://github.com/panva/node-oidc-provider/commit/3196032298800a7e7c81ff63a20591dc71e2e3ef))
+* add cause to provider errors ([b329354](https://github.com/panva/node-oidc-provider/commit/b32935406ef0c735c6360582c43446bfffbc2c65))
+* **dpop:** centralize replay detection ([1d764c8](https://github.com/panva/node-oidc-provider/commit/1d764c83b8c67ba2bc8e2d202cb279102059879a))
+* ensure incoming Configuration is not mutated ([e59fd60](https://github.com/panva/node-oidc-provider/commit/e59fd60d7735fcc7cc0a9960ffe143ab2f9c142d))
+* **grants:** share source lifecycle checks ([d12f969](https://github.com/panva/node-oidc-provider/commit/d12f9697e790e7246da834ef99c86e65884f88ca))
+* **resources:** share access token validation ([1770bcf](https://github.com/panva/node-oidc-provider/commit/1770bcf7754ab962c1ac6ac0852fc708ecbe9b6f))
+* retain memory entries through clock tolerance ([72ea716](https://github.com/panva/node-oidc-provider/commit/72ea71667addb86a71f28e11cdefc764868d193b))
+
+### Performance
+
+* **cimd:** coalesce concurrent document fetches ([5248ff2](https://github.com/panva/node-oidc-provider/commit/5248ff2b5bee99aa0d244ce5744418bda86e4be0))
+* **configuration:** reuse defaults during draft validation ([1b1306d](https://github.com/panva/node-oidc-provider/commit/1b1306d6c54a1ade47c0cda4e0c7547e455e5f06))
+* **jwt:** stop key iteration after successful crypto ([d428277](https://github.com/panva/node-oidc-provider/commit/d4282773e7becf16c0d25617ddac3d3da16e5959))
+* **models:** cache payload allowlists ([1b781c9](https://github.com/panva/node-oidc-provider/commit/1b781c9cc3cd86aa36f3c22c12e0c9758f9d504f))
+* **params:** scan duplicate parameters once ([b572798](https://github.com/panva/node-oidc-provider/commit/b572798e606608bc6c569669d46aae88dc6c6e1a))
+
+## [9.11.1](https://github.com/panva/node-oidc-provider/compare/v9.11.0...v9.11.1) (2026-07-27)
+
+
+### Fixes
+
+* correct typos and grammar in user-facing messages ([1be723e](https://github.com/panva/node-oidc-provider/commit/1be723eafb1e8704b7ae98f797d00217b2f8c026))
+* derive server challenges from the clock rather than a timer ([ba9d960](https://github.com/panva/node-oidc-provider/commit/ba9d960bceb82a54de6d1e0562792a8fbb9c11a1)), closes [#1438](https://github.com/panva/node-oidc-provider/issues/1438)
+* don't dereference a skipped refresh token lookup ([fe6f90e](https://github.com/panva/node-oidc-provider/commit/fe6f90e6fcc87ac705f9cd4cea39814d746f80b0))
+* don't emit grant.revoked twice during logout ([a41d043](https://github.com/panva/node-oidc-provider/commit/a41d04389d53cb67e742e24166852bf150b19a4e))
+* only recognize dpop_jkt when DPoP is enabled ([8c38630](https://github.com/panva/node-oidc-provider/commit/8c38630d21e2b72f43ad06927e2336019c60094d))
+* use the effective scope when resolving ID Token claims ([ab1f41b](https://github.com/panva/node-oidc-provider/commit/ab1f41b6b3faf1212ae50b01beaed549872ca466))
+
+
+### Documentation
+
+* correct stale configuration documentation ([6096bef](https://github.com/panva/node-oidc-provider/commit/6096bef1e214e5667772f1b99df38f892261f3b6))
+* document the missing emitted events ([c295623](https://github.com/panva/node-oidc-provider/commit/c295623a3d64ab841c308be091958572e1fbd534))
+
+
+### Refactor
+
+* remove unused OIDCContext resolvedClaims ([5fe6807](https://github.com/panva/node-oidc-provider/commit/5fe68070f5d596b463cb831c3070849553d89214))
+
+## [9.11.0](https://github.com/panva/node-oidc-provider/compare/v9.10.0...v9.11.0) (2026-07-26)
+
+
+### Features
+
+* allow customizing the OpenID4VCI Credential Endpoint expected audience ([313eaa6](https://github.com/panva/node-oidc-provider/commit/313eaa64c82d7705f58cf6436ece51b70783849a))
+
+## [9.10.0](https://github.com/panva/node-oidc-provider/compare/v9.9.1...v9.10.0) (2026-07-20)
+
+
+### Features
+
+* Experimental support for OpenID for Verifiable Credential Issuance ([43a5a88](https://github.com/panva/node-oidc-provider/commit/43a5a880eee7335c3a0fe94ecc9203c69270451e))
+* update Attestation-Based Client Authentication to -10 ([b833e2f](https://github.com/panva/node-oidc-provider/commit/b833e2fc65d21f760b1470d6d0471fcf847c0b2a))
+
 ## [9.9.1](https://github.com/panva/node-oidc-provider/compare/v9.9.0...v9.9.1) (2026-07-07)
 
 

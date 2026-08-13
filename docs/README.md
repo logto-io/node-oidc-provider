@@ -272,18 +272,23 @@ provider.use(async (ctx, next) => {
    *
    * `authorization`
    * `backchannel_authentication`
+   * `challenge`
    * `client_delete`
    * `client_update`
    * `client`
    * `code_verification`
+   * `cors.challenge`
+   * `cors.credential`
    * `cors.device_authorization`
    * `cors.discovery`
    * `cors.introspection`
    * `cors.jwks`
+   * `cors.openid_credential_issuer`
    * `cors.pushed_authorization_request`
    * `cors.revocation`
    * `cors.token`
    * `cors.userinfo`
+   * `credential`
    * `device_authorization`
    * `device_resume`
    * `discovery`
@@ -292,6 +297,7 @@ provider.use(async (ctx, next) => {
    * `end_session`
    * `introspection`
    * `jwks`
+   * `openid_credential_issuer`
    * `pushed_authorization_request`
    * `registration`
    * `resume`
@@ -335,11 +341,11 @@ path prefix `/oidc`.
 ### to a `fastify` application
 
 ```js
-// assumes fastify ^4.0.0
+// assumes fastify ^5.0.0
 const fastify = new Fastify();
-await fastify.register(require("@fastify/middie"));
+await fastify.register(await import("@fastify/middie"));
 // or
-// await app.register(require('@fastify/express'));
+// await fastify.register(await import('@fastify/express'));
 fastify.use("/oidc", provider.callback());
 ```
 
@@ -477,9 +483,10 @@ location / {
   - [rpMetadataChoices](#featuresrpmetadatachoices) - OIDC Relying Party Metadata Choices 1.0
   - [userinfo](#featuresuserinfo) - OIDC Core 1.0 - UserInfo Endpoint
   - Experimental features:
-    - [attestClientAuth](#featuresattestclientauth) - draft-ietf-oauth-attestation-based-client-auth-06 - OAuth 2.0 Attestation-Based Client Authentication
-    - [clientIdMetadataDocument](#featuresclientidmetadatadocument) - `draft-ietf-oauth-client-id-metadata-document-02` - OAuth Client ID Metadata Document (CIMD)
+    - [attestClientAuth](#featuresattestclientauth) - draft-ietf-oauth-attestation-based-client-auth-10 - OAuth 2.0 Attestation-Based Client Authentication
+    - [clientIdMetadataDocument](#featuresclientidmetadatadocument) - draft-ietf-oauth-client-id-metadata-document-02 - OAuth Client ID Metadata Document (CIMD)
     - [externalSigningSupport](#featuresexternalsigningsupport) - External Signing Support
+    - [openid4vci](#featuresopenid4vci) - OpenID for Verifiable Credential Issuance 1.0
     - [richAuthorizationRequests](#featuresrichauthorizationrequests) - RFC9396 - OAuth 2.0 Rich Authorization Requests
     - [webMessageResponseMode](#featureswebmessageresponsemode) - draft-sakimura-oauth-wmrm-01 - OAuth 2.0 Web Message Response Mode
 - [findAccount ❗](#findaccount) - Account Loading and Claims Resolution
@@ -858,7 +865,7 @@ _**default value**_:
 async function useGrantedResource(ctx, model) {
   // @param ctx - koa request context
   // @param model - depending on the request's grant_type this can be either an AuthorizationCode, BackchannelAuthenticationRequest,
-  //                RefreshToken, or DeviceCode model instance.
+  //                RefreshToken, DeviceCode, or PreAuthorizedCode model instance.
   return false;
 }
 ```
@@ -1370,13 +1377,8 @@ false
 
 #### nonceSecret
 
-Specifies the cryptographic secret value used for generating server-provided DPoP nonces. When provided, this value MUST be a 32-byte Buffer instance to ensure sufficient entropy for secure nonce generation.  
+Specifies the cryptographic secret value used for generating server-provided DPoP nonces. When provided, this value MUST be a 32-byte Buffer instance to ensure sufficient entropy for secure nonce generation. Nonces are derived from this secret rather than stored; the same value MUST be configured on all instances of a deployment and kept stable across restarts.  
 
-
-_**default value**_:
-```js
-undefined
-```
 
 #### requireNonce
 
@@ -1436,11 +1438,6 @@ Specifies the FAPI profile version that shall be applied for security policy enf
 - '1.0 Final' - The authorization server shall implement behaviors from [FAPI 1.0 Security Profile - Part 2: Advanced](https://openid.net/specs/openid-financial-api-part-2-1_0-final.html)
 - Function - A function that shall be invoked with arguments `(ctx, client)` to determine the profile contextually. The function shall return one of the supported profile values or undefined when FAPI behaviors should be ignored for the current request context.  
 
-
-_**default value**_:
-```js
-undefined
-```
 
 </details>
 
@@ -1783,11 +1780,6 @@ _**recommendation**_: The same policies will be assigned to the Registration Acc
 ctx.oidc.entities.RegistrationAccessToken.policies = ['update-policy'];
 ```  
 
-
-_**default value**_:
-```js
-undefined
-```
 <a id="policies-to-define-registration-and-registration-management-policies"></a><details><summary>Example: (Click to expand) To define registration and registration management policies.</summary><br>
 
 
@@ -2158,7 +2150,7 @@ _**default value**_:
 
 ### features.attestClientAuth
 
-[draft-ietf-oauth-attestation-based-client-auth-06](https://www.ietf.org/archive/id/draft-ietf-oauth-attestation-based-client-auth-06.html) - OAuth 2.0 Attestation-Based Client Authentication  
+[draft-ietf-oauth-attestation-based-client-auth-10](https://www.ietf.org/archive/id/draft-ietf-oauth-attestation-based-client-auth-10.html) - OAuth 2.0 Attestation-Based Client Authentication  
 
 > [!NOTE]
 > This is an experimental feature.
@@ -2167,7 +2159,7 @@ _**default value**_:
 > The following default helper implementations in this option include placeholders and MUST be replaced by a deployment before use.
 > - `getAttestationSignaturePublicKey`
 
-Specifies whether Attestation-Based Client Authentication capabilities shall be enabled. When enabled, the authorization server shall support the `attest_jwt_client_auth` authentication method within the server's `clientAuthMethods` configuration. This mechanism enables Client Instances to authenticate using a Client Attestation JWT issued by a trusted Client Attester and a corresponding Client Attestation Proof-of-Possession JWT generated by the Client Instance. 
+Specifies whether Attestation-Based Client Authentication capabilities shall be enabled. When enabled, the authorization server shall support the `attest_jwt_client_auth` authentication method within the server's `clientAuthMethods` configuration. This mechanism enables Client Instances to authenticate using a Client Attestation JWT issued by a trusted Client Attester and a corresponding Client Attestation Proof-of-Possession JWT generated by the Client Instance. It can also enable Client Attestation as an additional security signal alongside existing Client Authentication methods using the `attestation_pop_jwt` Proof-of-Possession method. 
 
   
 
@@ -2176,6 +2168,7 @@ _**default value**_:
 ```js
 {
   ack: undefined,
+  additionalSecuritySignal: false,
   assertAttestationJwtAndPop: [AsyncFunction: assertAttestationJwtAndPop], // see expanded details below
   challengeSecret: undefined,
   enabled: false,
@@ -2186,11 +2179,21 @@ _**default value**_:
 <details><summary>(Click to expand) features.attestClientAuth options details</summary><br>
 
 
+#### additionalSecuritySignal
+
+Specifies whether Client Attestation shall be accepted or required as an additional security signal alongside regular client authentication. Use `optional` to validate the signal when it is present, or `required` to require the OAuth-Client-Attestation and OAuth-Client-Attestation-PoP headers after the client is identified. This uses the `attestation_pop_jwt` method and does not enable DPoP combined mode.  
+
+
+_**default value**_:
+```js
+false
+```
+
 #### assertAttestationJwtAndPop
 
 Specifies a helper function that shall be invoked to perform additional validation of the Client Attestation JWT and Client Attestation Proof-of-Possession JWT beyond the specification requirements. This enables enforcement of extension profiles, deployment-specific policies, or additional security constraints. 
 
-At the point of invocation, both JWTs have undergone signature verification and standard validity claim validation. The function may throw errors to reject non-compliant attestations or return successfully to indicate acceptance of the client authentication attempt.  
+At the point of invocation, both JWTs have undergone signature verification and standard validity claim validation. The function may throw errors to reject non-compliant attestations or return successfully to indicate acceptance of the client authentication attempt or additional security signal.  
 
 
 _**default value**_:
@@ -2206,22 +2209,21 @@ async function assertAttestationJwtAndPop(ctx, attestation, pop, client) {
   //        pop.payload - parsed protected header object
   //        pop.key - CryptoKey that verified the Attestation JWT PoP signature
   // @param client - client making the request
+  //
+  // When features.attestClientAuth.additionalSecuritySignal is enabled this function
+  // is also invoked after regular client authentication succeeds. At that point the
+  // attestation is available as an additional request security signal.
 }
 ```
 
 #### challengeSecret
 
-Specifies the cryptographic secret value used for generating server-provided challenges. This value MUST be a 32-byte Buffer instance to ensure sufficient entropy for secure challenge generation.  
+Specifies the cryptographic secret value used for generating server-provided challenges. This value MUST be a 32-byte Buffer instance to ensure sufficient entropy for secure challenge generation. Challenges are derived from this secret rather than stored; the same value MUST be configured on all instances of a deployment and kept stable across restarts.  
 
-
-_**default value**_:
-```js
-undefined
-```
 
 #### getAttestationSignaturePublicKey
 
-Specifies a helper function that shall be invoked to verify the issuer identifier of a Client Attestation JWT and retrieve the public key used for signature verification. At the point of this function's invocation, only the JWT format has been validated; no cryptographic or claims verification has occurred. 
+Specifies a helper function that shall be invoked to retrieve the public key used for Client Attestation JWT signature verification. At the point of this function's invocation, only the JWT format has been validated; no cryptographic or claims verification has occurred. 
 
 The function MUST return a public key in one of the supported formats: CryptoKey, KeyObject, or JSON Web Key (JWK) representation. The authorization server shall use this key to verify the Client Attestation JWT signature. 
 
@@ -2230,10 +2232,10 @@ The function MUST return a public key in one of the supported formats: CryptoKey
 
 _**default value**_:
 ```js
-async function getAttestationSignaturePublicKey(ctx, iss, header, client) {
+async function getAttestationSignaturePublicKey(ctx, header, payload, client) {
   // @param ctx - koa request context
-  // @param iss - Issuer Identifier from the Client Attestation JWT
   // @param header - Protected Header of the Client Attestation JWT
+  // @param payload - decoded, untrusted payload of the Client Attestation JWT
   // @param client - client making the request
   throw new Error('features.attestClientAuth.getAttestationSignaturePublicKey not implemented');
 }
@@ -2245,9 +2247,9 @@ import * as jose from 'jose';
 const attesters = new Map(Object.entries({
   'https://attester.example.com': jose.createRemoteJWKSet(new URL('https://attester.example.com/jwks')),
 }));
-function getAttestationSignaturePublicKey(ctx, iss, header, client) {
-  if (attesters.has(iss)) return attesters.get(iss)(header);
-  throw new Error('unsupported oauth-client-attestation issuer');
+function getAttestationSignaturePublicKey(ctx, header, payload, client) {
+  if (typeof header.jku === 'string' && attesters.has(header.jku)) return attesters.get(header.jku)(header);
+  throw new Error('unsupported oauth-client-attestation attester');
 }
 ```
 </details>
@@ -2258,7 +2260,7 @@ function getAttestationSignaturePublicKey(ctx, iss, header, client) {
 
 ### features.clientIdMetadataDocument
 
-[`draft-ietf-oauth-client-id-metadata-document-02`](https://www.ietf.org/archive/id/draft-ietf-oauth-client-id-metadata-document-02.html) - OAuth Client ID Metadata Document (CIMD)  
+[draft-ietf-oauth-client-id-metadata-document-02](https://www.ietf.org/archive/id/draft-ietf-oauth-client-id-metadata-document-02.html) - OAuth Client ID Metadata Document (CIMD)  
 
 > [!NOTE]
 > This is an experimental feature.
@@ -2346,6 +2348,345 @@ _**default value**_:
   enabled: false
 }
 ```
+
+---
+
+### features.openid4vci
+
+[OpenID for Verifiable Credential Issuance 1.0](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0-final.html)  
+
+> [!NOTE]
+> This is an experimental feature.
+
+> [!IMPORTANT]
+> The following default helper implementations in this option include placeholders and MUST be replaced by a deployment before use.
+> - `issueCredential`
+> - `getKeyAttestationSignaturePublicKey`
+
+Specifies whether OpenID4VCI core capabilities shall be enabled. When enabled, the authorization server shall expose the Credential Issuer Metadata, Credential Endpoint, and Nonce Endpoint routes, and perform protocol validation for issuance requests. Supported proof types are `jwt` and `attestation`. The `attestation` proof type relies on Key Attestation JWTs signed by a Wallet Provider; use `getKeyAttestationSignaturePublicKey` to resolve the attester's public key. 
+
+Credential Offer is an application-level concern outside the scope of the framework. The Issuer constructs the Credential Offer JSON object (containing `credential_issuer`, `credential_configuration_ids`, and `grants`) and delivers it to the Wallet via a custom URL scheme redirect (same-device) or QR code (cross-device). The `issuer_state` authorization parameter, included in the offer's `grants.authorization_code` object and sent back by the Wallet in the authorization request, should be registered via `extraParams` with a validator callback. Once registered, it becomes available in `ctx.oidc.params` and is included in the interaction session details automatically. The Wallet's `credential_offer_endpoint` client metadata can be supported via `extraClientMetadata` if needed. The `metadata` configuration property below can be used to add any additional Credential Issuer Metadata members. 
+
+Access to the Credential Endpoint requires an Access Token issued through a user-facing authorization grant (e.g. Authorization Code). The token MUST use the `opaque` format and its audience MUST equal the value returned by the `credentialEndpointExpectedAudience` helper. Deployments shall use the `features.resourceIndicators` mechanism to configure that same value as a resource indicator. Use the `defaultResource` helper to detect credential-requesting authorization requests and return it as the resource so that the client needs not to use the `resource` parameter. Use the `useGrantedResource` helper to return `true` so that the issued Access Token targets the Credential Endpoint rather than the UserInfo Endpoint. 
+
+  
+
+
+_**default value**_:
+```js
+{
+  ack: undefined,
+  credentialConfigurationPolicy: [Function: openid4vciCredentialConfigurationPolicy], // see expanded details below
+  credentialConfigurationsSupported: {},
+  credentialEndpointExpectedAudience: [Function: openid4vciCredentialEndpointExpectedAudience], // see expanded details below
+  enabled: false,
+  getKeyAttestationSignaturePublicKey: [AsyncFunction: openid4vciGetKeyAttestationSignaturePublicKey], // see expanded details below
+  issueCredential: [AsyncFunction: openid4vciIssueCredential], // see expanded details below
+  metadata: {},
+  nonceSecret: undefined,
+  preAuthorizedCodeGrant: false
+}
+```
+<a id="features-openid-4-vci-configuring-resource-indicators-for-the-credential-endpoint"></a><details><summary>Example: (Click to expand) Configuring resourceIndicators for the Credential Endpoint.</summary><br>
+
+```js
+{
+  features: {
+    resourceIndicators: {
+      defaultResource(ctx) {
+        // detect a credential-requesting authorization request
+        // and return the credential endpoint URL as the default resource
+        return ctx.oidc.urlFor('credential');
+      },
+      useGrantedResource() {
+        // skip issuing an Access Token for the UserInfo Endpoint,
+        // use the granted resource instead
+        return true;
+      },
+      getResourceServerInfo(ctx, resourceIndicator) {
+        if (resourceIndicator === ctx.oidc.urlFor('credential')) {
+          return {
+            scope: 'credential_scope',
+            // accessTokenFormat is 'opaque' by default
+          };
+        }
+        throw new errors.InvalidTarget();
+      },
+    },
+  },
+}
+```
+</details>
+
+<details><summary>(Click to expand) features.openid4vci options details</summary><br>
+
+
+#### credentialConfigurationPolicy
+
+Specifies a helper function that shall be invoked at runtime to decide whether a specific credential configuration is currently issuable for the current request context. 
+
+  
+
+
+_**default value**_:
+```js
+function openid4vciCredentialConfigurationPolicy(
+  ctx,
+  {
+    credentialConfigurationId,
+    credentialConfiguration,
+    credentialIdentifier,
+    client,
+    account,
+    grant,
+    accessToken,
+  },
+) {
+  return true;
+}
+```
+<a id="credential-configuration-policy-allowing-issuance-only-for-a-specific-client-and-granted-scope"></a><details><summary>Example: (Click to expand) Allowing issuance only for a specific client and granted scope.</summary><br>
+
+```js
+{
+  async credentialConfigurationPolicy(ctx, {
+    credentialConfigurationId,
+    credentialConfiguration,
+    client,
+    account,
+    grant,
+    accessToken,
+  }) {
+    return client.clientId === 'wallet-app'
+      && accessToken.scopes.has('mdl_scope');
+  },
+}
+```
+</details>
+
+#### credentialConfigurationsSupported
+
+Specifies static Credential Issuer metadata values for `credential_configurations_supported`. 
+
+  
+
+
+_**default value**_:
+```js
+{}
+```
+<a id="credential-configurations-supported-defining-credential-configurations"></a><details><summary>Example: (Click to expand) Defining credential configurations.</summary><br>
+
+```js
+{
+  credentialConfigurationsSupported: {
+    'org.iso.18013.5.1.mDL': {
+      format: 'mso_mdoc',
+      doctype: 'org.iso.18013.5.1.mDL',
+      scope: 'mdl_scope',
+      cryptographic_binding_methods_supported: ['jwk'],
+      proof_types_supported: {
+        jwt: {
+          proof_signing_alg_values_supported: ['ES256'],
+          key_attestations_required: {
+            key_storage: ['iso_18045_high', 'iso_18045_moderate'],
+            user_authentication: ['iso_18045_moderate'],
+          },
+        },
+      },
+    },
+    'org.iso.18013.5.1.mDL.attestation': {
+      format: 'mso_mdoc',
+      doctype: 'org.iso.18013.5.1.mDL',
+      scope: 'mdl_scope',
+      cryptographic_binding_methods_supported: ['jwk'],
+      proof_types_supported: {
+        attestation: {
+          proof_signing_alg_values_supported: ['ES256'],
+          key_attestations_required: {
+            key_storage: ['iso_18045_high', 'iso_18045_moderate'],
+            user_authentication: ['iso_18045_moderate'],
+          },
+        },
+      },
+    },
+    SD_JWT_VC_example_in_OpenID4VCI: {
+      format: 'dc+sd-jwt',
+      vct: 'SD_JWT_VC_example_in_OpenID4VCI',
+      scope: 'mdl_scope',
+    },
+  },
+}
+```
+</details>
+
+#### credentialEndpointExpectedAudience
+
+Specifies a helper function that shall be invoked to resolve the value the Access Token's `aud` claim must equal in order to access the Credential Endpoint. It shall return a non-empty string. 
+
+The default derives the Credential Endpoint URL from the incoming request, which only resolves consistently when the Credential Endpoint and the Token Endpoint are served on the same host. Deployments serving the Credential Endpoint on another host, such as a mutual-TLS host, shall return a fixed absolute URL from this helper. 
+
+Whatever this helper returns MUST equal the resource indicator the Access Token was issued for; this helper and the `features.resourceIndicators` configuration are two halves of the same contract. Note that OpenID4VCI recommends the Credential Issuer Identifier (`ctx.oidc.issuer`) as the `resource` parameter value, which is another value that does not vary with the host serving the request.  
+
+
+_**default value**_:
+```js
+function openid4vciCredentialEndpointExpectedAudience(ctx) {
+  return ctx.oidc.urlFor('credential');
+}
+```
+
+#### getKeyAttestationSignaturePublicKey
+
+Specifies a helper function used to resolve the public key for verifying Key Attestation JWT (typ `key-attestation+jwt`) signatures when the `attestation` proof type is used. At the point of invocation the JWT format and `iss` claim presence have been validated; no cryptographic or further claims verification has occurred yet. 
+
+The function receives the Koa request context, the `iss` (Wallet Provider identifier) from the Key Attestation JWT, the decoded JOSE protected header, and the Client instance. It MUST return a public key as a CryptoKey, KeyObject, or JWK object. If the function throws, the credential endpoint responds with `invalid_proof`. 
+
+  
+
+
+_**default value**_:
+```js
+async function openid4vciGetKeyAttestationSignaturePublicKey(ctx, iss, header, client) {
+  // @param ctx - koa request context
+  // @param iss - Issuer Identifier from the Key Attestation JWT
+  // @param header - Protected Header of the Key Attestation JWT
+  // @param client - the Client instance
+  throw new Error('features.openid4vci.getKeyAttestationSignaturePublicKey not implemented');
+}
+```
+<a id="get-key-attestation-signature-public-key-fetching-attester-public-keys-from-the-attester's-hosted-jwks"></a><details><summary>Example: (Click to expand) Fetching attester public keys from the attester's hosted JWKS</summary><br>
+
+```js
+import * as jose from 'jose';
+const attesters = new Map(Object.entries({
+  'https://attester.example.com': jose.createRemoteJWKSet(new URL('https://attester.example.com/jwks')),
+}));
+function getKeyAttestationSignaturePublicKey(ctx, iss, header, client) {
+  if (attesters.has(iss)) return attesters.get(iss)(header);
+  throw new Error('unsupported key attestation issuer');
+}
+```
+</details>
+
+#### issueCredential
+
+Specifies a helper function that shall be invoked to perform actual credential issuance and return credential response payloads. By the time this function is called all proof signatures, algorithms, types, required claims (`iat`, `nonce`, `aud`), and `c_nonce` challenges have already been validated. 
+
+When `proofs` is present it contains a single key whose name is the proof type: 
+
+- `jwt` The value is the original array of compact JWS strings. When the JWT proof(s) contain a `key_attestation` JOSE header parameter, the pre-parsed key attestation data is available as `proofs.key_attestation` with:
+  - `jwt` {string} The Key Attestation JWT compact serialization.
+  - `attestedKeys` {Object[]} The `attested_keys` claim (array of JWK objects).
+  - `payload` {Object} The full Key Attestation JWT payload, including optional claims such as `key_storage`, `user_authentication`, and `certification`. 
+
+- `attestation` The value is a pre-parsed object with:
+  - `jwt` {string} The original Key Attestation JWT compact serialization.
+  - `attestedKeys` {Object[]} The `attested_keys` claim (array of JWK objects).
+  - `payload` {Object} The full Key Attestation JWT payload, including optional claims such as `key_storage`, `user_authentication`, and `certification` when present. If `key_attestations_required` is configured for the credential configuration, the required claims have been validated to contain at least one matching value before this function is called. 
+
+  
+
+
+_**default value**_:
+```js
+async function openid4vciIssueCredential(
+  ctx,
+  {
+    credentialConfigurationId,
+    credentialConfiguration,
+    credentialIdentifier,
+    body,
+    proofs,
+    client,
+    account,
+    grant,
+    accessToken,
+  },
+) {
+  throw new Error('features.openid4vci.issueCredential not implemented');
+}
+```
+<a id="issue-credential-returning-one-credential-in-the-response"></a><details><summary>Example: (Click to expand) Returning one credential in the response.</summary><br>
+
+```js
+{
+  async issueCredential(ctx, {
+    credentialConfigurationId,
+    credentialConfiguration,
+    body,
+    proofs,
+    client,
+    account,
+    grant,
+    accessToken,
+  }) {
+    return {
+      credentials: [
+        { credential: '...serialized-credential...' },
+      ],
+    };
+  },
+}
+```
+</details>
+
+#### metadata
+
+Free-form object with additional top-level members to be merged into the Credential Issuer Metadata response.  
+
+
+_**default value**_:
+```js
+{}
+```
+
+#### nonceSecret
+
+Specifies the cryptographic secret used to generate and validate OpenID4VCI `c_nonce` challenges exposed by the nonce endpoint. This value MUST be a 32-byte Buffer instance. `c_nonce` values are derived from this secret rather than stored; the same value MUST be configured on all instances of a deployment and kept stable across restarts.  
+
+
+#### preAuthorizedCodeGrant
+
+Specifies whether the OpenID4VCI Pre-Authorized Code Flow shall be enabled. When enabled, the authorization server shall accept `urn:ietf:params:oauth:grant-type:pre-authorized_code` grant type exchanges at the token endpoint. Clients using this grant type must have it registered in their `grant_types` client metadata. 
+
+Pre-authorized codes represent issuance authorization obtained through means outside of the protocol exchanges defined by this framework. Creating them, together with their underlying Grant, is an application-level concern, as is delivering them to the Wallet inside a Credential Offer. 
+
+Pre-authorized codes are single-use. An optional Transaction Code (`txCode` property, a string) may be attached to a pre-authorized code, in which case the Wallet-provided `tx_code` parameter presence is validated before the code is consumed and its value is then compared in constant time, a failed comparison revokes the pre-authorized code and its underlying Grant. 
+
+No ID Token is issued as part of this grant type's token exchange. 
+
+  
+
+
+_**default value**_:
+```js
+false
+```
+<a id="pre-authorized-code-grant-minting-a-pre-authorized-code"></a><details><summary>Example: (Click to expand) Minting a pre-authorized code.</summary><br>
+
+```js
+const grant = new provider.Grant({
+  accountId,
+  clientId,
+});
+grant.addResourceScope(resource, 'credential_scope');
+const grantId = await grant.save();
+const code = new provider.PreAuthorizedCode({
+  accountId,
+  clientId,
+  grantId,
+  resource,
+  scope: 'credential_scope',
+  txCode: '493536', // optional
+});
+// deliver as grants['urn:ietf:params:oauth:grant-type:pre-authorized_code']['pre-authorized_code']
+// in a Credential Offer
+const preAuthorizedCode = await code.save();
+```
+</details>
+
+</details>
 
 ---
 
@@ -2673,6 +3014,7 @@ Artifact Expirations (TTL)
 > - `Grant`
 > - `IdToken`
 > - `Interaction`
+> - `PreAuthorizedCode`
 > - `RefreshToken`
 > - `Session`
 
@@ -2710,6 +3052,7 @@ _**default value**_:
   Grant: 1209600 /* 14 days in seconds */,
   IdToken: 3600 /* 1 hour in seconds */,
   Interaction: 3600 /* 1 hour in seconds */,
+  PreAuthorizedCode: 600 /* 10 minutes in seconds */,
   RefreshToken: function RefreshTokenTTL(ctx, token, client) {
     if (
       ctx?.oidc?.entities.RotatedRefreshToken
@@ -3666,8 +4009,6 @@ function extraClientMetadataValidator(ctx, key, value, metadata) {
   // @param key - the client metadata property name
   // @param value - the property value
   // @param metadata - the current accumulated client metadata
-  // @param ctx - koa request context (only provided when a client is being constructed during
-  //              Client Registration Request or Client Update Request
 }
 ```
 
@@ -3964,7 +4305,7 @@ new Prompt(
 
   new Check(
     'essential_acrs',
-    'none of the requested ACRs could not be obtained',
+    'none of the requested ACRs could be obtained',
     (ctx) => {
       const { oidc } = ctx;
       const request = oidc.claims?.id_token?.acr ?? {};
@@ -4423,6 +4764,7 @@ _**default value**_:
   backchannel_authentication: '/backchannel',
   challenge: '/challenge',
   code_verification: '/device',
+  credential: '/credential',
   device_authorization: '/device/auth',
   end_session: '/session/end',
   introspection: '/token/introspection',
@@ -4543,7 +4885,7 @@ that.
 
 ### I'm getting a client authentication failed error with no details
 
-Every client is configured with one of 7 available
+Every client is configured with one of 8 available
 [`token_endpoint_auth_method` values](https://www.iana.org/assignments/oauth-parameters/oauth-parameters.xhtml#token-endpoint-auth-method)
 and it must adhere to how that given method must be submitted. Submitting multiple means of
 authentication is also not possible. Authorization server operators are encouraged to set up

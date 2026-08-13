@@ -12,9 +12,9 @@ import bootstrap, { skipConsent } from '../test_helper.js';
 /**
  * Replay detection of DPoP proofs at the token endpoint. The main dpop suite covers proof
  * binding at the token endpoint and replay detection at the userinfo endpoint; these tests pin
- * the token-endpoint replay branches — `applyDpopBinding` in `helpers/grant_common.js` (used by
- * the client_credentials grant) and the inline check in `actions/grants/refresh_token.js` —
- * along with the `features.dPoP.allowReplay` escape hatch.
+ * the token-endpoint replay behavior for the client_credentials and refresh_token grants —
+ * centralized in `helpers/validate_dpop.js` since v9.11.2 (`1d764c83`) — along with the
+ * `features.dPoP.allowReplay` escape hatch.
  */
 
 async function DPoP(keypair, htu, htm) {

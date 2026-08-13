@@ -1,6 +1,6 @@
 # Fork patches
 
-This branch (`v9`) tracks upstream [panva/node-oidc-provider](https://github.com/panva/node-oidc-provider) at the `v9.9.1` tag. Every deviation from that tag is documented here — one section per patch, added by the pull request that applies it. If a change is not in this file, it does not exist in the fork.
+This branch (`v9`) tracks upstream [panva/node-oidc-provider](https://github.com/panva/node-oidc-provider) at the `v9.11.3` tag. Every deviation from that tag is documented here — one section per patch, added by the pull request that applies it. If a change is not in this file, it does not exist in the fork.
 
 Each patch records four things:
 
@@ -9,7 +9,7 @@ Each patch records four things:
 - **Files touched**
 - **What breaks if dropped** — the observable failure that tells us the patch is missing.
 
-To audit this inventory, run `git diff v9.9.1 --stat` on the branch: every file in that diff must appear in a **Files touched** list below (or be this file). The next upstream upgrade starts from that command and this document — re-apply each section onto the new tag, or retire it with a note here.
+To audit this inventory, run `git diff v9.11.3 --stat` on the branch: every file in that diff must appear in a **Files touched** list below (or be this file). The next upstream upgrade starts from that command and this document — re-apply each section onto the new tag, or retire it with a note here.
 
 ## Repository scaffolding
 
@@ -43,12 +43,12 @@ To audit this inventory, run `git diff v9.9.1 --stat` on the branch: every file 
 - **Files touched**: `lib/helpers/client_schema.js`; test expectations adjusted in `test/configuration/client_metadata.test.js` and `test/oauth_native_apps/oauth_native_apps.test.js` (including a pin that wildcard-shaped `https://*.example.com/callback` URIs pass schema validation untouched — see the wildcard note below).
 - **What breaks if dropped**: existing Logto applications with a custom-scheme web redirect URI (e.g. `capacitor://localhost`), a non-loopback `http` native URI, or a loopback `https` native URI fail client-load validation with `invalid_redirect_uri` / `invalid_client_metadata` and can no longer sign in.
 
-### ID token claims effective scope — `LOGTO PATCH(id-token-claims-effective-scope)`
+### ID token claims effective scope — retired (tests kept)
 
-- **What it does**: `issueIdToken` queries the account claims callback (`findAccount(...).claims(use, scope, ...)`) with the effective scope of the current request — `scopeOverride || source.scopes` — instead of the source token's full stored scope. Observable difference: a down-scoped refresh request (e.g. `scope=openid` against a refresh token issued for `openid email offline_access`) now passes the narrowed scope to the claims callback. The other grants are unaffected: only the refresh_token grant passes `scopeOverride`, and for the rest `[...scopes].join(' ')` reconstructs `source.scope` exactly (`scopes` is derived from it).
-- **Why upstream does not cover it**: for upstream's claims mechanism the two scopes are interchangeable — the IdToken mask filters the payload by the effective scope either way, so upstream's tests cannot observe a difference. Claim sources that load data per scope (as Logto's does, with per-scope database queries for roles, organizations, and SSO identities) would otherwise over-fetch on down-scoped refresh requests, and fail them on errors from queries the request no longer needs.
-- **Files touched**: `lib/helpers/grant_common.js` (`issueIdToken`, one expression); tests in `test/id_token_claims_effective_scope/`.
-- **What breaks if dropped**: down-scoped refresh requests query claim data for scopes the request no longer carries, and `test/id_token_claims_effective_scope/` fails.
+- **What it was**: `issueIdToken` queried the account claims callback (`findAccount(...).claims(use, scope, ...)`) with the effective scope of the current request instead of the source token's full stored scope, so a down-scoped refresh request (e.g. `scope=openid` against a refresh token issued for `openid email offline_access`) passed the narrowed scope to the claims callback. Claim sources that load data per scope (as Logto's does, with per-scope database queries for roles, organizations, and SSO identities) would otherwise over-fetch on down-scoped refresh requests, and fail them on errors from queries the request no longer needs.
+- **Why it is retired**: upstream fixed the same expression in `ab1f41b6` (first released in v9.11.1), with behavior identical to the patch — when `scopeOverride` is present, `[...scopes].join(' ')` is the effective scope. The fork carries no lib deviation anymore; the test suite stays as a behavioral guard.
+- **Files touched**: tests in `test/id_token_claims_effective_scope/`.
+- **What breaks if dropped**: dropping the tests loses the fork-side guard that down-scoped refresh requests query account claims with the narrowed scope.
 
 ### CIMD metadata transform — `LOGTO PATCH(cimd-metadata-transform)`
 
@@ -60,8 +60,17 @@ To audit this inventory, run `git diff v9.9.1 --stat` on the branch: every file 
 ### Ensure session save persisted-only — `LOGTO PATCH(ensure-session-save-persisted-only)`
 
 - **What it does**: `ensureSessionSave` only calls `session.persist()` when the session carries an `exp`, i.e. when it was persisted before. Observable difference: a request to a device user-code route that fails while carrying no persisted session responds with its intended error (a redirect to the Logto Experience device page, or upstream's rendered user-code form) instead of a 500. Sessions that were already persisted still get persisted exactly as before.
-- **Why upstream does not cover it**: this is an upstream bug, not a Logto preference — `ensureSessionSave`'s condition (`touched && !destroyed`) is wider than `persist()`'s own precondition (`typeof exp === 'number'`, [`lib/models/session.js`](lib/models/session.js)), so the two disagree for a session that was touched but never persisted. `code_verification` and `device_resume` are the only routes whose error handler writes to the session (`generateXsrf` in [`lib/shared/error_handler.js`](lib/shared/error_handler.js)), and that write happens outside `sessionMiddleware`, whose own `save()` would otherwise cover it. Upstream v8 never surfaced the resulting `TypeError` because a provider-wide error handler wrapped the router and swallowed it; v9 dropped that backstop, so the error escapes the provider. Reported upstream; retire this patch once a fix lands there.
+- **Why upstream does not cover it**: this is an upstream bug, not a Logto preference — `ensureSessionSave`'s condition (`touched && !destroyed`) is wider than `persist()`'s own precondition (`typeof exp === 'number'`, [`lib/models/session.js`](lib/models/session.js)), so the two disagree for a session that was touched but never persisted. `code_verification` and `device_resume` are the only routes whose error handler writes to the session (`generateXsrf` in [`lib/shared/error_handler.js`](lib/shared/error_handler.js)), and that write happens outside `sessionMiddleware`, whose own `save()` would otherwise cover it. Upstream v8 never surfaced the resulting `TypeError` because a provider-wide error handler wrapped the router and swallowed it; v9 dropped that backstop, so the error escapes the provider. Retire this patch once an equivalent fix lands upstream.
 - **Files touched**: `lib/helpers/initialize_app.js` (`ensureSessionSave`, one condition); tests in `test/ensure_session_save/`.
 - **What breaks if dropped**: `GET /device/:uid` and `POST /device` without a persisted session (cookie-less browsers, bookmarked resume URLs, scanners) respond 500 with `TypeError: persist can only be called on previously persisted Sessions`, and `test/ensure_session_save/` fails.
+
+## Test-only additions
+
+### DPoP token endpoint replay coverage
+
+- **What it does**: pins DPoP proof replay detection at the token endpoint for the client_credentials and refresh_token grants — a second token request reusing a proof `jti` fails with `invalid_dpop_proof` — along with the `features.dPoP.allowReplay` escape hatch.
+- **Why upstream does not cover it**: the upstream dpop suite covers proof binding at the token endpoint and replay detection at the userinfo endpoint, with no direct coverage of the token-endpoint replay branches. Logto's custom grants consume `applyDpopBinding` through its internals module, so the fork pins the behavior they rely on.
+- **Files touched**: tests in `test/dpop_token_endpoint_replay/`.
+- **What breaks if dropped**: a regression in token-endpoint proof replay detection — from a fork patch or an upstream sync — lands without a failing test.
 
 Deliberately **not** returning to the fork: the v8 wildcard redirect URI patch (#18, `11070941`). Its matching logic moves into Logto core, which overrides `Client.prototype.redirectUriAllowed` / `postLogoutRedirectUriAllowed` per provider instance (tracked as LOG-13813). Until that override lands, this branch accepts wildcard-shaped URIs at registration but matches redirect URIs exactly — Logto must not consume the v9 fork before LOG-13813 completes. A Logto-side end-to-end test (sign-in through a wildcard-registered URI) fails loudly if this dependency is violated.
