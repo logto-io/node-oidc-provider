@@ -2280,7 +2280,8 @@ _**default value**_:
     max: 86400,
     min: 30
   },
-  enabled: false
+  enabled: false,
+  transformClientMetadata: [AsyncFunction: transformClientMetadata] // see expanded details below
 }
 ```
 
@@ -2321,6 +2322,18 @@ _**default value**_:
 {
   max: 86400,
   min: 30
+}
+```
+
+#### transformClientMetadata
+
+`LOGTO PATCH(cimd-metadata-transform)`, not an upstream helper. Specifies a helper function that shall be invoked on every resolution of a Client ID Metadata Document — including when the document is served from cache — after the document passes the specification checks and before the Client instance is constructed. It receives a copy of the raw document and must return the metadata object to construct the Client from; the returned value goes through the regular client metadata schema validation, and the cached raw document is never affected.  
+
+
+_**default value**_:
+```js
+async transformClientMetadata(ctx, metadata) {
+  return metadata;
 }
 ```
 
