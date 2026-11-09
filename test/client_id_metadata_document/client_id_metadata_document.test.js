@@ -717,6 +717,61 @@ describe('Client ID Metadata Document', () => {
     });
   });
 
+  describe('empty optional display URIs', () => {
+    const DISPLAY_URIS = ['client_uri', 'logo_uri', 'policy_uri', 'tos_uri'];
+
+    it('treats empty display URIs as absent on fetch and cache hits', async () => {
+      const seen = [];
+      const provider = createProvider({
+        transformClientMetadata(_ctx, metadata) {
+          seen.push(metadata);
+          return metadata;
+        },
+      });
+      const id = 'https://empty-uris.example.com/client';
+      mockMetadata(id, Object.fromEntries(DISPLAY_URIS.map((prop) => [prop, ''])));
+
+      const fetched = await resolve(provider, id);
+      const cached = await resolve(provider, id);
+
+      for (const client of [fetched, cached]) {
+        const metadata = client.metadata();
+        for (const prop of DISPLAY_URIS) {
+          expect(metadata).not.to.have.property(prop);
+        }
+      }
+      expect(seen).to.have.lengthOf(2);
+      for (const metadata of seen) {
+        for (const prop of DISPLAY_URIS) {
+          expect(metadata).not.to.have.property(prop);
+        }
+      }
+    });
+
+    for (const [prop, value] of [
+      ['client_uri', ' '],
+      ['logo_uri', 'not a url'],
+      ['policy_uri', 'http://invalid-uris.example.com/policy'],
+      ['tos_uri', 'ftp://invalid-uris.example.com/tos'],
+      ['jwks_uri', ''],
+      ['sector_identifier_uri', ''],
+    ]) {
+      it(`still rejects ${prop}=${JSON.stringify(value)}`, async () => {
+        const provider = createProvider();
+        const id = `https://invalid-uris.example.com/${prop}`;
+        mockMetadata(id, { [prop]: value });
+
+        try {
+          await resolve(provider, id);
+          throw new Error('expected rejection');
+        } catch (err) {
+          expect(err.error).to.equal('invalid_client_metadata');
+          expect(err.error_description).to.equal(`client_id metadata document ${prop} must be an https: URL`);
+        }
+      });
+    }
+  });
+
   describe('concurrent metadata document fetches', () => {
     it('coalesces fetches while preserving request-scoped callbacks and clients', async () => {
       const allowFetchCalls = [];
