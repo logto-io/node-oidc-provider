@@ -78,6 +78,13 @@ To audit this inventory, run `git diff v9.11.3 --stat` on the branch: every file
 - **Files touched**: `lib/helpers/params.js`; tests in `test/scope_space_normalization/`.
 - **What breaks if dropped**: Codex (and any client padding `scope` with spaces) can never refresh — every refresh fails with `invalid_scope` and scope `""` — the userinfo endpoint's `scope` check rejects padded values the same way, and `test/scope_space_normalization/` fails.
 
+### Current resource scopes at token issuance — `LOGTO PATCH(current-resource-scopes)`
+
+- **What it does**: backport of upstream `a56afec` ("fix: apply current resource scopes at token issuance"). When the authorization_code, device_code, ciba, or pre-authorized_code grant issues a resource-bound access token, the scopes it carries are first filtered against the Resource Server's current `scope` (from `getResourceServerInfo`), then intersected with the Grant as before. Observable difference: after a Resource Server's scopes are narrowed or removed, codes and requests authorized before the change yield access tokens (opaque and JWT) and token responses with only the scopes the Resource Server still defines — an empty `scope` when none remain (kept as `""` per `scope-always-present`). The refresh_token grant already behaved this way.
+- **Why upstream does not cover it**: it does, from v9.13.2 on; the fork tracks v9.11.3. Upstream's change is in `lib/helpers/grant_authorization.js`, which the fork does not have — the same `resolveAndApplyResource` lives in `lib/helpers/grant_common.js` here — so the one-line fix was ported by hand rather than cherry-picked. **Retire this section** when syncing to upstream v9.13.2 or later: take upstream's code and drop the fork hunk and marker.
+- **Files touched**: `lib/helpers/grant_common.js` (`resolveAndApplyResource`, one expression); tests in `test/resource_indicators/resource_indicators.test.js` (upstream's tests, with the JWT assertion for the removed-scopes case changed to expect `scope: ""`, since `scope-always-present` keeps it) and `test/openid4vci/pre_authorized_code.test.js` (upstream's test, adapted to the fork's imports). Upstream's `test/helpers/grants.test.js` case is not ported: that file does not exist in the fork, and the integration tests above cover all four callers.
+- **What breaks if dropped**: access tokens keep scopes a Resource Server no longer defines until the original authorization expires, and the `Resource Server scope changes before token issuance` and `filters removed Resource Server scopes` tests fail.
+
 ## Test-only additions
 
 ### DPoP token endpoint replay coverage
