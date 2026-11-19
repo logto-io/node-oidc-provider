@@ -85,6 +85,13 @@ To audit this inventory, run `git diff v9.11.3 --stat` on the branch: every file
 - **Files touched**: `lib/helpers/grant_common.js` (`resolveAndApplyResource`, one expression); tests in `test/resource_indicators/resource_indicators.test.js` (upstream's tests, with the JWT assertion for the removed-scopes case changed to expect `scope: ""`, since `scope-always-present` keeps it) and `test/openid4vci/pre_authorized_code.test.js` (upstream's test, adapted to the fork's imports). Upstream's `test/helpers/grants.test.js` case is not ported: that file does not exist in the fork, and the integration tests above cover all four callers.
 - **What breaks if dropped**: access tokens keep scopes a Resource Server no longer defines until the original authorization expires, and the `Resource Server scope changes before token issuance` and `filters removed Resource Server scopes` tests fail.
 
+### Concurrent logout confirmation — `LOGTO PATCH(concurrent-logout)`
+
+- **What it does**: stores each logout or account-switch confirmation separately for five minutes, keyed by the hash of its form token and bound to the original session identifier. Confirmation deletes its own attempt without changing when the session is destroyed. Adapters must store the new `LogoutAttempt` model through the existing adapter methods. During a rolling upgrade, logout attempts that start on one version and are confirmed on the other may fail; restart logout if this happens.
+- **Why upstream does not cover it**: logout and account switching use a single `session.state` slot also shared by device verification; `logoutSource` only controls the HTML, not the state or confirmation handler.
+- **Files touched**: `lib/actions/end_session.js`, `lib/actions/authorization/resume.js`, `lib/models/logout_attempt.js`, `lib/models/index.js`, `lib/provider.js`, `example/my_adapter.js`; tests in `test/end_session/`, `test/backchannel_logout/`, `test/device_code/device_resume.test.js`, and `test/interaction/interaction.test.js`.
+- **What breaks if dropped**: starting a second logout invalidates the first form.
+
 ## Test-only additions
 
 ### DPoP token endpoint replay coverage

@@ -8,7 +8,8 @@ class MyAdapter {
    * @param {string} name Name of the oidc-provider model. One of "Grant, "Session", "AccessToken",
    * "AuthorizationCode", "RefreshToken", "ClientCredentials", "Client", "InitialAccessToken",
    * "RegistrationAccessToken", "DeviceCode", "Interaction", "ReplayDetection",
-   * "BackchannelAuthenticationRequest", "PreAuthorizedCode", or "PushedAuthorizationRequest"
+   * "BackchannelAuthenticationRequest", "PreAuthorizedCode", "PushedAuthorizationRequest",
+   * or "LogoutAttempt" (Logto fork)
    *
    */
   // biome-ignore lint/complexity/noUselessConstructor: example template documents the constructor signature
