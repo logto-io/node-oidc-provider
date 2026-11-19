@@ -85,6 +85,13 @@ To audit this inventory, run `git diff v9.11.3 --stat` on the branch: every file
 - **Files touched**: `lib/helpers/grant_common.js` (`resolveAndApplyResource`, one expression); tests in `test/resource_indicators/resource_indicators.test.js` (upstream's tests, with the JWT assertion for the removed-scopes case changed to expect `scope: ""`, since `scope-always-present` keeps it) and `test/openid4vci/pre_authorized_code.test.js` (upstream's test, adapted to the fork's imports). Upstream's `test/helpers/grants.test.js` case is not ported: that file does not exist in the fork, and the integration tests above cover all four callers.
 - **What breaks if dropped**: access tokens keep scopes a Resource Server no longer defines until the original authorization expires, and the `Resource Server scope changes before token issuance` and `filters removed Resource Server scopes` tests fail.
 
+### Concurrent logout confirmation — `LOGTO PATCH(concurrent-logout)`
+
+- **What it does**: stores each logout or account-switch confirmation separately for five minutes, keyed by the hash of its form token and bound to the original session identifier. The confirmation consumes its own attempt and claims the original session before applying logout side effects. The `Session` and `LogoutAttempt` adapters must implement `destroyOnce(id)` as an atomic delete that reports whether it removed the row. Deploy the compatible Logto adapter with the fork; forms already open during the upgrade must be restarted.
+- **Why upstream does not cover it**: logout and account switching use a single `session.state` slot also shared by device verification; `logoutSource` only controls the HTML, not the state or confirmation handler.
+- **Files touched**: `lib/actions/end_session.js`, `lib/actions/authorization/resume.js`, `lib/adapters/memory_adapter.js`, `lib/models/logout_attempt.js`, `lib/models/index.js`, `lib/models/session.js`, `lib/provider.js`, `lib/shared/session.js`, `example/my_adapter.js`; tests in `test/end_session/`, `test/backchannel_logout/`, `test/device_code/device_resume.test.js`, and `test/interaction/interaction.test.js`.
+- **What breaks if dropped**: starting a second logout invalidates the first form, and concurrent confirmations can both run logout side effects.
+
 ## Test-only additions
 
 ### DPoP token endpoint replay coverage

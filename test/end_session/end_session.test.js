@@ -13,6 +13,10 @@ const sinon = createSandbox();
 
 const route = '/session/end';
 
+function readSecret(html) {
+  return /name="xsrf" value="([^"]+)"/.exec(html)?.[1];
+}
+
 describe('logout endpoint', () => {
   before(bootstrap(import.meta.url));
   afterEach(() => timekeeper.reset());
@@ -24,12 +28,7 @@ describe('logout endpoint', () => {
           return this.wrap({ route, verb })
             .expect(200)
             .expect(({ text: body }) => {
-              const { state } = this.getSession();
-
-              expect(state.secret).to.be.ok;
-              expect(state.postLogoutRedirectUri).to.be.undefined;
-
-              expect(body).to.include(`input type="hidden" name="xsrf" value="${state.secret}"`);
+              expect(readSecret(body)).to.match(/^[0-9a-f]{48}$/);
               expect(body).to.include(`form method="post" action="${this.provider.issuer}${this.suitePath('/session/end/confirm')}"`);
             });
         });
@@ -77,10 +76,9 @@ describe('logout endpoint', () => {
 
             return this.wrap({ route, verb, params })
               .expect(200)
-              .expect(() => {
-                const { state: { postLogoutRedirectUri } } = this.getSession();
-                expect(postLogoutRedirectUri).to.equal('https://client.example.com/logout/cb');
-              });
+              .then(({ text }) => this.agent.post(`${route}/confirm`).type('form')
+                .send({ xsrf: readSecret(text) }).expect(303)
+                .expect('location', 'https://client.example.com/logout/cb'));
           });
 
           it('allows to redirect there (with id_token_hint)', function () {
@@ -91,10 +89,9 @@ describe('logout endpoint', () => {
 
             return this.wrap({ route, verb, params })
               .expect(200)
-              .expect(() => {
-                const { state: { postLogoutRedirectUri } } = this.getSession();
-                expect(postLogoutRedirectUri).to.equal('https://client.example.com/logout/cb');
-              });
+              .then(({ text }) => this.agent.post(`${route}/confirm`).type('form')
+                .send({ xsrf: readSecret(text) }).expect(303)
+                .expect('location', 'https://client.example.com/logout/cb'));
           });
 
           it('allows to redirect there (with client_id)', function () {
@@ -105,10 +102,9 @@ describe('logout endpoint', () => {
 
             return this.wrap({ route, verb, params })
               .expect(200)
-              .expect(() => {
-                const { state: { postLogoutRedirectUri } } = this.getSession();
-                expect(postLogoutRedirectUri).to.equal('https://client.example.com/logout/cb');
-              });
+              .then(({ text }) => this.agent.post(`${route}/confirm`).type('form')
+                .send({ xsrf: readSecret(text) }).expect(303)
+                .expect('location', 'https://client.example.com/logout/cb'));
           });
 
           it('allows to redirect there (with id_token_hint and client_id)', function () {
@@ -120,10 +116,9 @@ describe('logout endpoint', () => {
 
             return this.wrap({ route, verb, params })
               .expect(200)
-              .expect(() => {
-                const { state: { postLogoutRedirectUri } } = this.getSession();
-                expect(postLogoutRedirectUri).to.equal('https://client.example.com/logout/cb');
-              });
+              .then(({ text }) => this.agent.post(`${route}/confirm`).type('form')
+                .send({ xsrf: readSecret(text) }).expect(303)
+                .expect('location', 'https://client.example.com/logout/cb'));
           });
 
           it('requires client_id to match the id_token_hint', function () {
@@ -248,11 +243,9 @@ describe('logout endpoint', () => {
 
             return this.wrap({ route, verb, params })
               .expect(200)
-              .expect(() => {
-                const { state: { postLogoutRedirectUri, state } } = this.getSession();
-                expect(postLogoutRedirectUri).to.equal('https://client.example.com/logout/cb');
-                expect(state).to.equal('foobar');
-              });
+              .then(({ text }) => this.agent.post(`${route}/confirm`).type('form')
+                .send({ xsrf: readSecret(text), logout: 'yes' }).expect(303)
+                .expect('location', 'https://client.example.com/logout/cb?state=foobar'));
           });
 
           it('can omit the post_logout_redirect_uri and uses the default one', function () {
@@ -260,10 +253,9 @@ describe('logout endpoint', () => {
 
             return this.wrap({ route, verb, params })
               .expect(200)
-              .expect(() => {
-                const { state: { postLogoutRedirectUri } } = this.getSession();
-                expect(postLogoutRedirectUri).to.be.undefined;
-              });
+              .then(({ text }) => this.agent.post(`${route}/confirm`).type('form')
+                .send({ xsrf: readSecret(text), logout: 'yes' }).expect(303)
+                .expect('location', /\/session\/end\/success$/));
           });
 
           it('ignores unverified post_logout_redirect_uri', function () {
@@ -271,10 +263,9 @@ describe('logout endpoint', () => {
 
             return this.wrap({ route, verb, params })
               .expect(200)
-              .expect(() => {
-                const { state: { postLogoutRedirectUri } } = this.getSession();
-                expect(postLogoutRedirectUri).to.be.undefined;
-              });
+              .then(({ text }) => this.agent.post(`${route}/confirm`).type('form')
+                .send({ xsrf: readSecret(text), logout: 'yes' }).expect(303)
+                .expect('location', /\/session\/end\/success$/));
           });
         });
 
@@ -376,7 +367,59 @@ describe('logout endpoint', () => {
     });
 
     describe('POST end_session_confirm', () => {
-      it('checks session.state is set', function () {
+      it('keeps the first overlapping form and its redirect state valid', async function () {
+        const client = await this.provider.Client.find('client');
+        const redirect = 'https://client.example.com/logout/cb';
+        sinon.stub(client, 'postLogoutRedirectUris').value([redirect]);
+        const begin = (state) => this.agent.get(route)
+          .query({ client_id: 'client', post_logout_redirect_uri: redirect, state }).expect(200);
+        const first = readSecret((await begin('first')).text);
+        const second = readSecret((await begin('second')).text);
+        expect(first).not.to.equal(second);
+
+        const confirm = (xsrf) => this.agent.post(`${route}/confirm`).type('form')
+          .send({ xsrf, logout: 'yes' });
+        await confirm(first).expect(303).expect('location', `${redirect}?state=first`);
+        await this.login();
+        const newSession = this.getSessionId();
+        await confirm(second).expect(400);
+        expect(await this.provider.Session.find(newSession)).to.be.ok;
+      });
+
+      it('only runs logout side effects once for concurrent confirmations', async function () {
+        const id = this.getSessionId();
+        const grants = Object.values(this.getSession().authorizations).map(({ grantId }) => grantId);
+        const first = readSecret((await this.agent.get(route).expect(200)).text);
+        const second = readSecret((await this.agent.get(route).expect(200)).text);
+        const adapter = this.TestAdapter.for('Session');
+        const revoke = sinon.spy(this.TestAdapter.for('AuthorizationCode'), 'revokeByGrantId');
+        const destroy = sinon.stub(adapter, 'destroyOnce');
+        let arrive;
+        const bothArrived = new Promise((resolve) => { arrive = resolve; });
+        let claims = 0;
+        destroy.withArgs(id).callsFake(async function claim(sessionId) {
+          if (++claims === 2) arrive();
+          await bothArrived;
+          return destroy.wrappedMethod.call(this, sessionId);
+        });
+        const confirm = (xsrf) => this.agent.post(`${route}/confirm`).type('form')
+          .send({ xsrf, logout: 'yes' }).ok(() => true);
+        const responses = await Promise.all([confirm(first), confirm(second)]);
+        expect(responses.map(({ status }) => status).sort()).to.deep.equal([303, 400]);
+        expect(revoke.args).to.have.deep.members(grants.map((id) => [id]));
+        expect(await this.provider.Session.find(id)).to.be.undefined;
+        expect(responses.find(({ status }) => status === 400).headers).not.to.have.property('set-cookie');
+      });
+
+      it('rejects expired confirmation forms without destroying the session', async function () {
+        const id = this.getSessionId();
+        const xsrf = readSecret((await this.agent.get(route).expect(200)).text);
+        timekeeper.travel(Date.now() + 5 * 60 * 1000);
+        await this.agent.post(`${route}/confirm`).type('form').send({ xsrf, logout: 'yes' }).expect(400);
+        expect(await this.provider.Session.find(id)).to.be.ok;
+      });
+
+      it('rejects a confirmation without an attempt', function () {
         const emitSpy = sinon.spy();
         const renderSpy = sinon.spy(i(this.provider).configuration, 'renderError');
         this.provider.once('end_session_confirm.error', emitSpy);
@@ -395,11 +438,11 @@ describe('logout endpoint', () => {
           });
       });
 
-      it('checks session.state.secret (xsrf is right)', function () {
+      it('rejects the wrong confirmation token', async function () {
         const emitSpy = sinon.spy();
         const renderSpy = sinon.spy(i(this.provider).configuration, 'renderError');
         this.provider.once('end_session_confirm.error', emitSpy);
-        this.getSession().state = { secret: '123' };
+        await this.agent.get(route).expect(200);
 
         return this.agent.post('/session/end/confirm')
           .set('Accept', 'text/html')
@@ -416,42 +459,40 @@ describe('logout endpoint', () => {
           });
       });
 
-      it('populates ctx.oidc.entities', function (done) {
-        this.assertOnce((ctx) => {
+      it('populates ctx.oidc.entities', async function () {
+        const xsrf = await this.provider.LogoutAttempt.issue(this.getSessionId(), { clientId: 'client' });
+        this.provider.once('end_session.success', (ctx) => {
           expect(ctx.oidc.entities).to.have.keys('Client', 'Session');
-        }, done);
+        });
 
-        this.getSession().state = { secret: '123', postLogoutRedirectUri: 'https://rp.example.com/', clientId: 'client' };
-
-        this.agent.post('/session/end/confirm')
-          .send({ xsrf: '123', logout: 'yes' })
+        return this.agent.post('/session/end/confirm')
+          .send({ xsrf, logout: 'yes' })
           .type('form')
-          .end(() => {});
+          .expect(303);
       });
 
-      it('destroys complete session if user wants to', function () {
+      it('destroys complete session if user wants to', async function () {
         const sessionId = this.getSessionId();
         const sessionAdapter = this.TestAdapter.for('Session');
-        sinon.spy(sessionAdapter, 'destroy');
+        sinon.spy(sessionAdapter, 'destroyOnce');
         sinon.spy(sessionAdapter, 'upsert');
         const authorizationCodeAdapter = this.TestAdapter.for('AuthorizationCode');
         sinon.spy(authorizationCodeAdapter, 'revokeByGrantId');
         const session = this.getSession();
 
-        session.state = { secret: '123', postLogoutRedirectUri: 'https://rp.example.com/', clientId: 'client' };
+        const xsrf = await this.provider.LogoutAttempt.issue(sessionId, { clientId: 'client' });
         session.authorizations.client.persistsLogout = true;
 
         const [firstGrant, secondGrant] = Object.keys(session.authorizations)
           .map((x) => session.authorizations[x].grantId);
 
         return this.agent.post('/session/end/confirm')
-          .send({ xsrf: '123', logout: 'yes' })
+          .send({ xsrf, logout: 'yes' })
           .type('form')
           .expect(303)
           .expect((response) => {
-            expect(sessionAdapter.destroy.called).to.be.true;
             expect(sessionAdapter.upsert.called).not.to.be.true;
-            expect(sessionAdapter.destroy.withArgs(sessionId).calledOnce).to.be.true;
+            expect(sessionAdapter.destroyOnce.withArgs(sessionId).calledOnce).to.be.true;
             expect(parseUrl(response.headers.location, true).query).not.to.have.property('client_id');
             expect(authorizationCodeAdapter
               .revokeByGrantId.calledOnce).to.be.true;
@@ -462,20 +503,20 @@ describe('logout endpoint', () => {
           });
       });
 
-      it('only clears one clients session if user doesn\'t want to log out (using post_logout_redirect_uri)', function () {
+      it('only clears one clients session if user doesn\'t want to log out (using post_logout_redirect_uri)', async function () {
         const adapter = this.TestAdapter.for('Session');
-        sinon.spy(adapter, 'destroy');
+        sinon.spy(adapter, 'destroyOnce');
         const authorizationCodeAdapter = this.TestAdapter.for('AuthorizationCode');
         sinon.spy(authorizationCodeAdapter, 'revokeByGrantId');
         let session = this.getSession();
         const oldId = this.getSessionId();
-        session.state = { secret: '123', postLogoutRedirectUri: 'https://rp.example.com/logout/cb', clientId: 'client' };
+        const xsrf = await this.provider.LogoutAttempt.issue(oldId, { postLogoutRedirectUri: 'https://rp.example.com/logout/cb', clientId: 'client' });
         session.authorizations.client.persistsLogout = true;
 
         expect(session.authorizations.client).to.be.ok;
 
         return this.agent.post('/session/end/confirm')
-          .send({ xsrf: '123' })
+          .send({ xsrf })
           .type('form')
           .expect(303)
           .expect((response) => {
@@ -483,24 +524,24 @@ describe('logout endpoint', () => {
             expect(session.authorizations.client).to.be.undefined;
             expect(session.state).to.be.undefined;
             expect(this.getSessionId()).not.to.eql(oldId);
-            expect(adapter.destroy.calledOnceWith(oldId)).to.be.true;
+            expect(adapter.destroyOnce.calledOnceWith(oldId)).to.be.true;
             expect(parseUrl(response.headers.location, true).query).not.to.have.key('client_id');
             expect(authorizationCodeAdapter
               .revokeByGrantId.called).to.be.false;
           });
       });
 
-      it('only clears one clients session if user doesn\'t want to log out (using end_session_success)', function () {
+      it('only clears one clients session if user doesn\'t want to log out (using end_session_success)', async function () {
         const adapter = this.TestAdapter.for('Session');
-        sinon.spy(adapter, 'destroy');
+        sinon.spy(adapter, 'destroyOnce');
         let session = this.getSession();
         const oldId = this.getSessionId();
-        session.state = { secret: '123', clientId: 'client' };
+        const xsrf = await this.provider.LogoutAttempt.issue(oldId, { clientId: 'client' });
 
         expect(session.authorizations.client).to.be.ok;
 
         return this.agent.post('/session/end/confirm')
-          .send({ xsrf: '123' })
+          .send({ xsrf })
           .type('form')
           .expect(303)
           .expect((response) => {
@@ -508,12 +549,12 @@ describe('logout endpoint', () => {
             expect(session.authorizations.client).to.be.undefined;
             expect(session.state).to.be.undefined;
             expect(this.getSessionId()).not.to.eql(oldId);
-            expect(adapter.destroy.calledOnceWith(oldId)).to.be.true;
+            expect(adapter.destroyOnce.calledOnceWith(oldId)).to.be.true;
             expect(parseUrl(response.headers.location, true).query).to.have.property('client_id', 'client');
           });
       });
 
-      it('clears one clients session when the client can no longer be resolved', function () {
+      it('clears one clients session when the client can no longer be resolved', async function () {
         const find = sinon.stub(this.provider.Client, 'find').callsFake(async function clientFind(clientId) {
           if (clientId === 'client') {
             throw new InvalidClient('client is invalid', 'client not found');
@@ -524,12 +565,12 @@ describe('logout endpoint', () => {
 
         let session = this.getSession();
         const oldId = this.getSessionId();
-        session.state = { secret: '123', clientId: 'client' };
+        const xsrf = await this.provider.LogoutAttempt.issue(oldId, { clientId: 'client' });
 
         expect(session.authorizations.client).to.be.ok;
 
         return this.agent.post('/session/end/confirm')
-          .send({ xsrf: '123' })
+          .send({ xsrf })
           .type('form')
           .expect(303)
           .expect((response) => {
@@ -542,15 +583,15 @@ describe('logout endpoint', () => {
           });
       });
 
-      it('forwards the state too', function () {
-        this.getSession().state = {
-          secret: '123', postLogoutRedirectUri: 'https://rp.example.com/', clientId: 'client', state: 'foobar',
-        };
+      it('forwards the state too', async function () {
+        const xsrf = await this.provider.LogoutAttempt.issue(this.getSessionId(), {
+          postLogoutRedirectUri: 'https://rp.example.com/', clientId: 'client', state: 'foobar',
+        });
 
         i(this.provider).configuration.cookies.long.domain = '.oidc.dev';
 
         return this.agent.post('/session/end/confirm')
-          .send({ xsrf: '123', logout: 'yes' })
+          .send({ xsrf, logout: 'yes' })
           .type('form')
           .expect(() => {
             delete i(this.provider).configuration.cookies.long.domain;
@@ -559,16 +600,12 @@ describe('logout endpoint', () => {
           .expect('location', 'https://rp.example.com/?state=foobar');
       });
 
-      it('handles a no existing session state', async function () {
-        Object.assign(this.getSession(), {
-          state: {
-            secret: '123', postLogoutRedirectUri: 'https://rp.example.com/', clientId: 'client', state: 'foobar',
-          },
-          authorizations: undefined,
-        });
+      it('handles a session without authorizations', async function () {
+        this.getSession().authorizations = undefined;
+        const xsrf = await this.provider.LogoutAttempt.issue(this.getSessionId(), { clientId: 'client' });
 
         return this.agent.post('/session/end/confirm')
-          .send({ xsrf: '123' })
+          .send({ xsrf })
           .type('form')
           .expect(() => {
             delete i(this.provider).configuration.cookies.long.domain;

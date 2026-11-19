@@ -8,7 +8,8 @@ class MyAdapter {
    * @param {string} name Name of the oidc-provider model. One of "Grant, "Session", "AccessToken",
    * "AuthorizationCode", "RefreshToken", "ClientCredentials", "Client", "InitialAccessToken",
    * "RegistrationAccessToken", "DeviceCode", "Interaction", "ReplayDetection",
-   * "BackchannelAuthenticationRequest", "PreAuthorizedCode", or "PushedAuthorizationRequest"
+   * "BackchannelAuthenticationRequest", "PreAuthorizedCode", "PushedAuthorizationRequest",
+   * or "LogoutAttempt" (Logto fork)
    *
    */
   // biome-ignore lint/complexity/noUselessConstructor: example template documents the constructor signature
@@ -226,6 +227,16 @@ class MyAdapter {
    *
    */
   async destroy(_id) {
+
+  }
+
+  /**
+   * For LogoutAttempt and Session during logout: atomically delete by ID and return true only
+   * if this call deleted the row. A separate find followed by destroy is not atomic.
+   * @return {Promise<boolean>}
+   * @param {string} id Identifier of oidc-provider model
+   */
+  async destroyOnce(_id) {
 
   }
 
