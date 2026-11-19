@@ -388,7 +388,8 @@ describe('logout endpoint', () => {
 
       it('preserves the session so logout can be retried after a client lookup fails', async function () {
         const id = this.getSessionId();
-        const grants = Object.values(this.getSession().authorizations).map(({ grantId }) => grantId);
+        const { accountId, authorizations } = this.getSession();
+        const grants = Object.values(authorizations).map(({ grantId }) => grantId);
         const revoke = sinon.spy(this.TestAdapter.for('AuthorizationCode'), 'revokeByGrantId');
         const begin = async () => readSecret((await this.agent.get(route)
           .query({ client_id: 'client' }).expect(200)).text);
@@ -399,7 +400,7 @@ describe('logout endpoint', () => {
         const find = sinon.stub(this.provider.Client, 'find').rejects(new Error('Client lookup failed'));
         await confirm(first).expect(500);
         find.restore();
-        expect(await this.provider.Session.find(id)).to.have.property('accountId', this.loggedInAccountId);
+        expect(await this.provider.Session.find(id)).to.have.property('accountId', accountId);
 
         await confirm(await begin()).expect(303);
         expect(revoke.args).to.have.deep.members(grants.map((grantId) => [grantId]));
