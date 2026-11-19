@@ -231,16 +231,6 @@ class MyAdapter {
   }
 
   /**
-   * For LogoutAttempt and Session during logout: atomically delete by ID and return true only
-   * if this call deleted the row. A separate find followed by destroy is not atomic.
-   * @return {Promise<boolean>}
-   * @param {string} id Identifier of oidc-provider model
-   */
-  async destroyOnce(_id) {
-
-  }
-
-  /**
    *
    * Destroy/Drop/Remove a stored oidc-provider model by its grantId property reference. Future
    * finds for all tokens having this grantId value should be fulfilled with falsy values.

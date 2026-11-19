@@ -386,29 +386,24 @@ describe('logout endpoint', () => {
         expect(await this.provider.Session.find(newSession)).to.be.ok;
       });
 
-      it('only runs logout side effects once for concurrent confirmations', async function () {
+      it('preserves the session so logout can be retried after a client lookup fails', async function () {
         const id = this.getSessionId();
         const grants = Object.values(this.getSession().authorizations).map(({ grantId }) => grantId);
-        const first = readSecret((await this.agent.get(route).expect(200)).text);
-        const second = readSecret((await this.agent.get(route).expect(200)).text);
-        const adapter = this.TestAdapter.for('Session');
         const revoke = sinon.spy(this.TestAdapter.for('AuthorizationCode'), 'revokeByGrantId');
-        const destroy = sinon.stub(adapter, 'destroyOnce');
-        let arrive;
-        const bothArrived = new Promise((resolve) => { arrive = resolve; });
-        let claims = 0;
-        destroy.withArgs(id).callsFake(async function claim(sessionId) {
-          if (++claims === 2) arrive();
-          await bothArrived;
-          return destroy.wrappedMethod.call(this, sessionId);
-        });
+        const begin = async () => readSecret((await this.agent.get(route)
+          .query({ client_id: 'client' }).expect(200)).text);
         const confirm = (xsrf) => this.agent.post(`${route}/confirm`).type('form')
-          .send({ xsrf, logout: 'yes' }).ok(() => true);
-        const responses = await Promise.all([confirm(first), confirm(second)]);
-        expect(responses.map(({ status }) => status).sort()).to.deep.equal([303, 400]);
-        expect(revoke.args).to.have.deep.members(grants.map((id) => [id]));
+          .send({ xsrf, logout: 'yes' });
+
+        const first = await begin();
+        const find = sinon.stub(this.provider.Client, 'find').rejects(new Error('Client lookup failed'));
+        await confirm(first).expect(500);
+        find.restore();
+        expect(await this.provider.Session.find(id)).to.have.property('accountId', this.loggedInAccountId);
+
+        await confirm(await begin()).expect(303);
+        expect(revoke.args).to.have.deep.members(grants.map((grantId) => [grantId]));
         expect(await this.provider.Session.find(id)).to.be.undefined;
-        expect(responses.find(({ status }) => status === 400).headers).not.to.have.property('set-cookie');
       });
 
       it('rejects expired confirmation forms without destroying the session', async function () {
@@ -474,7 +469,7 @@ describe('logout endpoint', () => {
       it('destroys complete session if user wants to', async function () {
         const sessionId = this.getSessionId();
         const sessionAdapter = this.TestAdapter.for('Session');
-        sinon.spy(sessionAdapter, 'destroyOnce');
+        sinon.spy(sessionAdapter, 'destroy');
         sinon.spy(sessionAdapter, 'upsert');
         const authorizationCodeAdapter = this.TestAdapter.for('AuthorizationCode');
         sinon.spy(authorizationCodeAdapter, 'revokeByGrantId');
@@ -492,7 +487,7 @@ describe('logout endpoint', () => {
           .expect(303)
           .expect((response) => {
             expect(sessionAdapter.upsert.called).not.to.be.true;
-            expect(sessionAdapter.destroyOnce.withArgs(sessionId).calledOnce).to.be.true;
+            expect(sessionAdapter.destroy.withArgs(sessionId).calledOnce).to.be.true;
             expect(parseUrl(response.headers.location, true).query).not.to.have.property('client_id');
             expect(authorizationCodeAdapter
               .revokeByGrantId.calledOnce).to.be.true;
@@ -505,7 +500,7 @@ describe('logout endpoint', () => {
 
       it('only clears one clients session if user doesn\'t want to log out (using post_logout_redirect_uri)', async function () {
         const adapter = this.TestAdapter.for('Session');
-        sinon.spy(adapter, 'destroyOnce');
+        sinon.spy(adapter, 'destroy');
         const authorizationCodeAdapter = this.TestAdapter.for('AuthorizationCode');
         sinon.spy(authorizationCodeAdapter, 'revokeByGrantId');
         let session = this.getSession();
@@ -524,7 +519,7 @@ describe('logout endpoint', () => {
             expect(session.authorizations.client).to.be.undefined;
             expect(session.state).to.be.undefined;
             expect(this.getSessionId()).not.to.eql(oldId);
-            expect(adapter.destroyOnce.calledOnceWith(oldId)).to.be.true;
+            expect(adapter.destroy.calledOnceWith(oldId)).to.be.true;
             expect(parseUrl(response.headers.location, true).query).not.to.have.key('client_id');
             expect(authorizationCodeAdapter
               .revokeByGrantId.called).to.be.false;
@@ -533,7 +528,7 @@ describe('logout endpoint', () => {
 
       it('only clears one clients session if user doesn\'t want to log out (using end_session_success)', async function () {
         const adapter = this.TestAdapter.for('Session');
-        sinon.spy(adapter, 'destroyOnce');
+        sinon.spy(adapter, 'destroy');
         let session = this.getSession();
         const oldId = this.getSessionId();
         const xsrf = await this.provider.LogoutAttempt.issue(oldId, { clientId: 'client' });
@@ -549,7 +544,7 @@ describe('logout endpoint', () => {
             expect(session.authorizations.client).to.be.undefined;
             expect(session.state).to.be.undefined;
             expect(this.getSessionId()).not.to.eql(oldId);
-            expect(adapter.destroyOnce.calledOnceWith(oldId)).to.be.true;
+            expect(adapter.destroy.calledOnceWith(oldId)).to.be.true;
             expect(parseUrl(response.headers.location, true).query).to.have.property('client_id', 'client');
           });
       });
