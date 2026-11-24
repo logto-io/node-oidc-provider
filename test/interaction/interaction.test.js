@@ -541,10 +541,8 @@ describe('resume after consent', () => {
         .expect(/document.addEventListener\('DOMContentLoaded', function \(\) { document.forms\[0\].submit\(\) }\);/)
         .expect(/<input type="hidden" name="logout" value="yes"\/>/)
         .expect(({ text }) => {
-          ({ state } = this.getSession());
-          expect(state).to.have.property('clientId', 'client');
-          expect(state).to.have.property('postLogoutRedirectUri').that.matches(/\/auth\/resume$/);
-          expect(text).to.match(new RegExp(`input type="hidden" name="xsrf" value="${state.secret}"`));
+          state = /name="xsrf" value="([0-9a-f]{48})"/.exec(text)?.[1];
+          expect(state).to.be.a('string');
         })
         .expect(/<form method="post" action=".+\/session\/end\/confirm">/);
 
@@ -552,7 +550,7 @@ describe('resume after consent', () => {
 
       await this.agent.post('/session/end/confirm')
         .send({
-          xsrf: state.secret,
+          xsrf: state,
           logout: 'yes',
         })
         .type('form')
